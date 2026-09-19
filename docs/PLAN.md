@@ -1,0 +1,130 @@
+# QwenChess Plan
+
+Milestone checklist with task IDs. Detailed steps only for near-term work; the
+rest is an ordered backlog with objective/dependencies/exit-gate. Work is serial
+(one reviewable change per task, usually one module + a few files + focused tests).
+
+Milestones: **M0** scaffold · **M1** board correctness · **M2** minimal UCI+search ·
+**M3** exact scalar NNUE · **M4** incremental NNUE · **M5** measured strength ·
+**M6** SIMD/platform · **M7** SMP/advanced.
+
+---
+
+## M0 — source/environment lock + scaffold
+
+### T001 — project scaffold + reference records  ✅ DONE (2026-09-18)
+Establish the project, persist the corrected architecture + reference records,
+build a minimal tested C17 scaffold. No chess logic.
+- **Changed:** git repo; `Makefile` (GCC default/Clang opt; debug/release/sanitize;
+  separate `build/<config>/`; `test`/`test-sanitize`/`net`/`test-net`);
+  `src/core/types.h`; `src/platform/clock.{h,c}`; `src/engine/main.c` (self-ID
+  scaffold); `tests/scaffold_test.c`; `tools/net_fetch.sh`/`net_test.sh`; root
+  `AGENTS.md`/`README.md`/`.gitignore`/`COPYING`/`PROVENANCE.md`; `docs/*`.
+- **Exit gate:** `make`/`debug`/`sanitize` build; `make test` + `make test-sanitize`
+  pass (ASan/UBSan); `make net` fetches+verifies the net; `make test-net` controls
+  pass; one commit.
+- **Detail in STATE.md** (completed).
+
+---
+
+## M1 — board correctness / perft
+
+### T002 — core primitives (board foundations)
+- **Objective:** bitboards, move encode/decode (extend `types.h`), Zobrist hashing,
+  and **portable** slider attack generation + a slow independent reference.
+  **Magic tables/PEXT are explicitly out of scope here** (M6, from measurements).
+- **Deps:** T001. **Files:** `src/core/{bitboard,attack,zobrist}.*` (+ `types.h`).
+- **Accept:** unit tests — bitboard ops; move round-trip; every square/piece attack
+  set matches the slow reference; Zobrist self-consistency. `make test` + `make sanitize`.
+
+### T003 — Position + FEN + logical-state invariants
+- **Objective:** the one `Position` (mailbox + derived `occ`/`byPiece` + side +
+  castling + canonicalized ep + wide rule50 + hash + `StateInfo` link); FEN
+  parse/set; invariants (derived bitboards == recompute; hash reproducibility).
+- **Deps:** T002. **Files:** `src/position/{position,fen}.*`.
+- **Accept:** FEN set/parse round-trip (startpos + specials); invariants hold; a
+  from-scratch hash matches the incremental one.
+
+### T004 — reversible move application (make/unmake) + MoveDelta/StateInfo
+- **Objective:** `make`/`unmake` restoring **all** logical state + hash exactly;
+  chess-level `MoveDelta`/`StateInfo` (no NNUE types); canonicalized ep; null
+  moves add no fictitious repetition; wide counters validated; repetition history
+  independent of the search stack.
+- **Deps:** T003. **Files:** `src/position/{stateinfo,move}.*` (make/unmake).
+- **Accept:** seeded random legal make/unmake chains restore every field + a
+  freshly recomputed hash; ep/castle/promo/null cases covered; ASan/UBSan clean.
+
+### T005 — legal move generation + special cases + perft/differential
+- **Objective:** pseudo/legal gen, captures, evasions; en-passant, castling,
+  promotion/underpromotion. A perft harness **above** position+movegen (board
+  core does not depend on movegen). Differential legal-move check vs an
+  independent trusted generator.
+- **Deps:** T004. **Files:** `src/movegen/*`; `tests/perft/*`; `tools/perft_check.*`.
+- **Accept (M1 exit):** perft ≤5 on startpos (4,865,609) + ≥3 special-move FENs
+  == trusted counts (fixture provenance recorded); differential movegen matches;
+  make/unmake stays exact under the generator.
+
+---
+
+## M2 — minimal UCI + search (uses the labelled temp Material eval; decoupled from NNUE)
+
+### T006 — labelled temp Material eval + responsive UCI protocol
+- **Deps:** T005. **Files:** `src/search/material.{h,c}`; `src/engine/{uci,options,output}.*`; `src/main.c`.
+- **Objective:** a **clearly labelled** temporary material evaluation (search
+  plumbing only — never a NNUE fallback); UCI init/options/position/go(depth,
+  movetime, infinite)/stop/quit/newgame; **a command-reader thread independent of
+  the single search worker + atomic cancellation**; serialized stdout. Advertise
+  only implemented options.
+- **Accept:** UCI smoke test; prompt `stop` is honored; correct mate/stalemate/
+  50-move handling; bounded buffers; validated input.
+
+### T007 — iterative deepening negamax + quiescence + TT + time management
+- **Deps:** T006. **Files:** `src/search/{search,tt,timeman}.*`.
+- **Objective:** ID alpha-beta, check-evading quiescence, basic ordering, TT,
+  soft/hard time + overhead; a legal fallback + the last completed iteration are
+  kept when interrupted. PVS/aspiration are **later, isolated** steps.
+- **Accept (M2 exit):** reproducible bench; plays a legal self-game; correct
+  mate/draw/no-legal-move; aborted search returns a legal move + last finished
+  iter; ASan/UBSan clean.
+
+---
+
+## M3 — exact scalar NNUE
+
+- **T008 — strict loader + diagnostics.** Deps: T002. `src/nnue/{nnue_network,nnue_types}.*`.
+  Reject missing/truncated/corrupt/incompatible nets with useful diagnostics;
+  never silently substitute another evaluator.
+- **T009 — scalar feature extraction (full).** Deps: T003, T008 + resolve
+  `NNUE_COMPATIBILITY.md` §10 items 3–5. `src/nnue/nnue_features.*`.
+- **T010 — instrumented SF19 oracle + exact scalar parity.** Deps: T009 + isolated
+  reference checkout (see PROVENANCE). Byte-compare integer outputs.
+- **Exit (M3):** QwenChess scalar eval == oracle (integer-exact) on all test
+  positions; `nnue verify` passes; **scalar full-refresh only** (no incremental yet).
+
+## M4 — incremental NNUE
+- **T011 — accumulators + per-worker Finny + incremental update.** Deps: T010 +
+  resolve §10 items 1,2,6. Caches are per-worker mutable (see ARCHITECTURE).
+- **Exit (M4):** incremental == full-refresh after every move/unmove over seeded
+  sequences (captures/promo/ep/castle/king/threat-ray/pawn-pair/bucket/orient/
+  null/FEN-reset/undo).
+
+## M5 — measured search strength (one feature at a time, each with evidence)
+SEE ordering/pruning → histories → LMR(+re-search) → null-move (zugzwang guard) →
+futility/razoring → extensions → correction history. Then paired cutechess matches
+vs the last QwenChess baseline (equal resources, colors swapped, fixed seeds, full
+PGN). Pre-declared stats; a match runner **must be installed before this begins**.
+
+## M6 — SIMD / platform tuning
+AVX2 kernels (exact equivalence to scalar; legal CPU-feature select; keep scalar
+path) → magic/PEXT attacks (from measurements on this CPU) → LTO/PGO, cache layout.
+
+## M7 — SMP + advanced
+C11-atomics TT + worker pool (keep a deterministic single-worker debug mode) →
+Chess960 → pondering → MultiPV → Syzygy. Each with explicit contracts.
+
+---
+
+## Ordered backlog (IDs reserved)
+`T008..T010` (M3) → `T011` (M4) → `T012..` (M5 strength) → `T…` (M6) → `T…` (M7).
+Reordering note: M2 search runs on the **labelled temp eval**, so search and NNUE
+progress independently and merge at M5; everything else is in the stated order.

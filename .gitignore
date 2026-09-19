@@ -1,0 +1,16 @@
+# Build output (per-config trees: build/release, build/debug, build/sanitize)
+build/
+
+# Fetched NNUE network (~98 MB binary). Re-fetch with `make net`; keep out of Git.
+networks/
+
+# Isolated upstream Stockfish 19 reference checkout (test oracle + attribution
+# only; NEVER part of QwenChess sources or the normal build). See PROVENANCE.md.
+reference/
+
+# Object / dependency / editor / OS cruft
+*.o
+*.d
+*~
+.*.swp
+.DS_Store
