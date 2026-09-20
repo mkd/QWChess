@@ -29,13 +29,21 @@ build a minimal tested C17 scaffold. No chess logic.
 
 ## M1 — board correctness / perft
 
-### T002 — core primitives (board foundations)
+### T002 — core primitives (board foundations)  ✅ DONE (2026-09-20, this commit)
 - **Objective:** bitboards, move encode/decode (extend `types.h`), Zobrist hashing,
   and **portable** slider attack generation + a slow independent reference.
   **Magic tables/PEXT are explicitly out of scope here** (M6, from measurements).
-- **Deps:** T001. **Files:** `src/core/{bitboard,attack,zobrist}.*` (+ `types.h`).
-- **Accept:** unit tests — bitboard ops; move round-trip; every square/piece attack
-  set matches the slow reference; Zobrist self-consistency. `make test` + `make sanitize`.
+- **Deps:** T001. **Files:** `src/core/{square.h,bitboard.h,attacks.* ,zobrist.*}`
+  (+ C17-safe `types.h`); `tests/{sq_bb,move,attacks,zobrist}_test.c` (+ `test_util.h`);
+  `tools/zobrist_gen.py`; `Makefile` (shared `-std=c17`, strict `check-c17`, per-test bins).
+- **Accept (met):** bitboard ops (square 266 / bitboard 61); move round-trip (8197);
+  every square/piece attack set vs an independent ray-march reference
+  (1,128,714 incl. exhaustive rook+bishop); **Zobrist** — independent generator-derived
+  key constants + XOR-delta vs a full recompute over 17 fixtures incl. reverse +
+  state restore (187). `make check-c17` (9 files) + `make test` + `make test-sanitize`
+  pass; `make clean` removes only `build/`.
+- **Still open in M1:** T003 (Position/FEN) → T004 (make/unmake) → T005 (movegen/perft).
+  Zobrist key updates are re-verified through seeded make/unmake sequences in T004/T005.
 
 ### T003 — Position + FEN + logical-state invariants
 - **Objective:** the one `Position` (mailbox + derived `occ`/`byPiece` + side +

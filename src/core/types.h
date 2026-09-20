@@ -44,32 +44,64 @@ typedef u8 Square;
 enum SquareSentinel { NO_SQUARE = SQ_NB };   /* "no square" sentinel = 64 */
 
 /* ---- Pieces. Values intentionally mirror Stockfish to ease later
- *      NNUE feature-index differential testing. ---- */
-enum PieceType : u8 {
+ *      NNUE feature-index differential testing.
+ *      C17 note: `enum X : u8 { … }` is a C23 fixed-underlying-type feature AND
+ *      a bare enum tag is not a usable type name in C. We therefore use a
+ *      one-byte typedef for the TYPE name and a separate ordinary enum for the
+ *      VALUES. This keeps every constant name, its value, and the one-byte size
+ *      while remaining valid C17. ---- */
+typedef u8 PieceType;
+enum {
   NO_PIECE_TYPE = 0, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
   ALL_PIECES = 0, PIECE_TYPE_NB = 8
 };
-enum Piece : u8 {
+typedef u8 Piece;
+enum {
   NO_PIECE = 0,
   W_PAWN = PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
   B_PAWN = PAWN + 8, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING,
   PIECE_NB = 16
 };
-enum Color : u8 { WHITE = 0, BLACK = 1, COLOR_NB = 2 };
+typedef u8 Color;
+enum { WHITE = 0, BLACK = 1, COLOR_NB = 2 };
+
+_Static_assert(sizeof(PieceType) == 1 && sizeof(Piece) == 1 && sizeof(Color) == 1,
+               "PieceType/Piece/Color must each be exactly one byte");
+/* Pin the Stockfish-mirroring values that later drive NNUE feature indexing. */
+_Static_assert(PAWN == 1 && QUEEN == 5 && KING == 6 && PIECE_TYPE_NB == 8,
+               "piece-type values must match Stockfish");
+_Static_assert(W_PAWN == 1 && W_KING == 6 && B_PAWN == 9 && B_KING == 14 && PIECE_NB == 16,
+               "piece values must match Stockfish");
+_Static_assert(WHITE == 0 && BLACK == 1 && COLOR_NB == 2, "color values must match Stockfish");
 
 /* ---- Move: compact 32-bit encoding.
- *      [from:6][to:6][flags:4][promoType:3]  (19 bits used, 0 = no move)
- *      Refined in the movegen task; accessors are stable. ---- */
+ *      [from:6][to:6][flags:3][reserved:1][promoType:3]  (bits 0..18 used).
+ *      Value 0 is the reserved no/null move (from=to=0, no flags, no promo).
+ *      from/to are 6-bit so a Move can never encode NO_SQUARE (64).
+ *      Castling: from = king square, to = the rook's origin square.
+ *      Promotion (MV_PROMO): promoType = target PieceType (KNIGHT..QUEEN = 2..5);
+ *      a plain pawn push has no MV_PROMO and promoType 0.
+ *      A double pawn push is NOT flag-encoded here; movegen derives it from a
+ *      pawn moving two ranks (bit 15 is reserved for future flags). ---- */
 typedef u32 Move;
-enum MoveFlag : u32 {
-  MV_EP = 1u << 0,       /* flags bits */
+enum MoveFlag {
+  MV_EP = 1u << 0,        /* flags occupy bits 12..14 (3 bits) */
   MV_PROMO = 1u << 1,
   MV_CASTLE = 1u << 2,
 };
+_Static_assert(MV_EP == 1 && MV_PROMO == 2 && MV_CASTLE == 4, "move flag bit values");
+/* Width guarantee (T002 group 3 inspection): the OR of every flag bit fits the
+ * 3-bit flags field, and a plain `int` enum represents each value without
+ * narrowing. No fixed (C23) base or wider unsigned type is therefore required. */
+_Static_assert((MV_EP | MV_PROMO | MV_CASTLE) <= 0x7, "MoveFlag values fit the 3-bit flags field");
 static inline Move make_move(Square from, Square to, u32 flags, u32 promoType) {
   u32 f = (u32)from & 0x3Fu;
   u32 t = (u32)to   & 0x3Fu;
-  return (Move)(f | (t << 6) | (flags << 12) | (promoType << 16));
+  /* Mask flags to the 3 defined bits so a bad input cannot set the reserved
+   * bit 15 or bleed into the promoType field (bits 16..18). */
+  u32 fl = flags & 0x7u;
+  u32 pr = promoType & 0x7u;
+  return (Move)(f | (t << 6) | (fl << 12) | (pr << 16));
 }
 static inline Square     move_from(Move m) { return (Square)(m & 0x3F); }
 static inline Square     move_to(Move m)   { return (Square)((m >> 6) & 0x3F); }
@@ -77,6 +109,14 @@ static inline u32        move_flags(Move m){ return (m >> 12) & 0x7; }
 static inline u32        move_promo(Move m){ return (m >> 16) & 0x7; }
 static inline Move       move_none(void)   { return (Move)0; }
 static inline int        is_null_move(Move m) { return m == 0; }
+static inline int        is_ep(Move m)     { return (move_flags(m) & MV_EP) != 0; }
+static inline int        is_promotion(Move m) { return (move_flags(m) & MV_PROMO) != 0; }
+static inline int        is_castle(Move m) { return (move_flags(m) & MV_CASTLE) != 0; }
+/* Representation validity: no bits in the reserved range 19..31 are set.
+ * (from/to are inherently 6-bit; a Move cannot hold NO_SQUARE.) Semantic
+ * legality (promo only with MV_PROMO, promo type 2..5, from != to for a real
+ * move) is the movegen/Position concern, not the encoder's. */
+static inline int move_repr_is_valid(Move m) { return (m >> 19) == 0; }
 
 /* ---- Search / history counters. Root-relative ply is DISTINCT from game
  *      history and the FEN fullmove number. Wide counters, validated at the
