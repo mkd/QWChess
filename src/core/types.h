@@ -65,6 +65,17 @@ enum {
 typedef u8 Color;
 enum { WHITE = 0, BLACK = 1, COLOR_NB = 2 };
 
+/* Castling rights, one 4-bit u8 value. Each bit is an independent right; a
+ * color loses a right when its king or the relevant rook moves, or when that
+ * home square is captured. `CR_ALL` (15) is the orthodox starting position. */
+enum {
+  CR_WK = 1u << 0,   /* white may castle kingside (h1 rook present, king unmoved) */
+  CR_WQ = 1u << 1,   /* white may castle queenside (a1 rook present) */
+  CR_BK = 1u << 2,   /* black may castle kingside (h8 rook present) */
+  CR_BQ = 1u << 3,   /* black may castle queenside (a8 rook present) */
+  CR_ALL = CR_WK | CR_WQ | CR_BK | CR_BQ   /* == 15 */
+};
+
 _Static_assert(sizeof(PieceType) == 1 && sizeof(Piece) == 1 && sizeof(Color) == 1,
                "PieceType/Piece/Color must each be exactly one byte");
 /* Pin the Stockfish-mirroring values that later drive NNUE feature indexing. */
