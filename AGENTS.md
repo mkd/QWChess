@@ -31,7 +31,8 @@ Separate `build/<config>/` trees — never mix objects across configs.
   type `int32_t Value`. Root-relative ply ≠ game history ≠ FEN fullmove; no `u8`
   rule50 (use wide, validated counters).
 - No heap allocation in the search/eval hot path; preallocate per worker.
-- make/unmake restore ALL logical state + hash exactly; canonicalize en-passant;
+- make/unmake restore ALL logical state + hash exactly; retain recorded en-passant
+  targets after every double pawn push and canonicalize only their key component;
   null moves create no fictitious repetition.
 - NNUE integer pipeline follows SF19 exactly (types/order/clipping); no UB
   (signed shifts, overflow, aliasing, narrowing handled explicitly).

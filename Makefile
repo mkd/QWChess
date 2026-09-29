@@ -73,9 +73,11 @@ POS_TEST_OBJ      := $(OBJ)/position/position.o $(OBJ)/tests/position_test.o $(O
 POS_TEST_BIN      := $(BIN)/position_test
 FEN_TEST_OBJ      := $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/tests/fen_test.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
 FEN_TEST_BIN      := $(BIN)/fen_test
-TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN)
+BOUNDARY_TEST_OBJ := $(OBJ)/tests/position_boundary_test.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
+BOUNDARY_TEST_BIN := $(BIN)/position_boundary_test
+TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN)
 
-DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d)
+DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d)
 
 .SUFFIXES:
 .PHONY: all release debug sanitize test test-sanitize check-c17 net test-net clean help
@@ -131,6 +133,9 @@ $(POS_TEST_BIN): $(POS_TEST_OBJ) | $(BIN)
 
 $(FEN_TEST_BIN): $(FEN_TEST_OBJ) | $(BIN)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(FEN_TEST_OBJ)
+
+$(BOUNDARY_TEST_BIN): $(BOUNDARY_TEST_OBJ) | $(BIN)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(BOUNDARY_TEST_OBJ)
 
 test:
 	$(MAKE) CONFIG=release test-run

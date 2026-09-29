@@ -73,6 +73,9 @@ the host's RAM. (The on-disk net is 94 MiB; weights decompress larger in memory.
 - `MAX_PLY_STACK = MAX_PLY + 1`.
 - Counters are `u16` and **distinct**: `SearchPly` (root-relative) ≠ game history
   ≠ `FullMoveNumber` (FEN). `HalfMoveClock` is wide (not `u8`) and validated.
+  FEN accepts halfmove 0..65535 and fullmove 1..65535. Draw thresholds are
+  adjudication rules, not structural FEN limits. Reject input overflow before
+  narrowing; T004 must check increments before they overflow.
 
 ### Score scale (derived from `MAX_PLY=256`; ordering asserted at compile time)
 ```
@@ -95,8 +98,10 @@ struct MoveDelta {
   Piece     captured;      /* piece removed from `to`, or NO_PIECE (ep handled via flags) */
   Piece     moved;         /* the moving piece (pre-move identity) */
   uint8_t   prev_cr;       /* castling rights before the move */
-  uint8_t   prev_rule50;   /* halfmove clock before (wide, validated) */
-  Square    prev_ep;       /* ep square before (canonicalized or NO_SQUARE) */
+  HalfMoveClock prev_rule50; /* full-width halfmove clock before */
+  FullMoveNumber prev_fullmove; /* fullmove number before */
+  u64       prev_key;      /* position key before */
+  Square    prev_ep;       /* exact recorded ep square before, or NO_SQUARE */
   Color     prev_side;     /* side to move before */
 };
 ```
@@ -107,9 +112,19 @@ struct MoveDelta {
 - **unmake():** restore **all** logical state from the `MoveDelta` + `move`;
   recompute nothing by guessing — every restored field matches a from-scratch
   recompute.
-- **En passant** is canonicalized (set only when a legal ep capture exists) so
-  repetition identity is correct. **Null moves** restore state exactly and add no
-  fictitious repetition.
+- **En passant:** `Position.ep_sq` retains the recorded target in every setup and
+  move path. The FEN loader preserves it, a double pawn push records its passed
+  square even without a legal captor, and other moves clear it. Unmake restores
+  the exact previous record. Only the **key** canonicalizes: `pos_canon_ep_file`
+  contributes the target file iff at least one EP capture is king-safe. Do not
+  erase an uncapturable raw record in make/unmake. This is QwenChess's storage
+  convention, independent of Stockfish's internal board representation.
+  **Null moves** clear EP while applied, restore it on undo, and add no fictitious
+  repetition.
+- The core `make_move(...)` function already constructs an encoded Move. T004
+  board mutation uses distinct names such as `pos_make_move` / `pos_unmake_move`.
+- Undo comparisons inspect logical fields and derived caches, not struct padding.
+  T004 uses hand-built moves; seeded legal sequences are a T005 integration gate.
 - **Repetition history** (a chain of pre-move states) is available independently
   of the search stack, so pre-root repetitions remain detectable.
 

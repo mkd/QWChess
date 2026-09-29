@@ -42,25 +42,35 @@ build a minimal tested C17 scaffold. No chess logic.
   key constants + XOR-delta vs a full recompute over 17 fixtures incl. reverse +
   state restore (187). `make check-c17` (9 files) + `make test` + `make test-sanitize`
   pass; `make clean` removes only `build/`.
-- **Still open in M1:** T003 (Position/FEN) → T004 (make/unmake) → T005 (movegen/perft).
-  Zobrist key updates are re-verified through seeded make/unmake sequences in T004/T005.
+- **Still open in M1:** T004 (make/unmake) → T005 (movegen/perft).
+  T003 is complete with the source-audit corrections. T004 verifies explicit
+  make/unmake fixtures; T005 adds seeded legal sequences through movegen.
 
 ### T003 — Position + FEN + logical-state invariants
-- **Objective:** the one `Position` (mailbox + derived `occ`/`byPiece` + side +
-  castling + canonicalized ep + wide rule50 + hash + `StateInfo` link); FEN
+- **Status:** implemented, tested, and **committed** (source-audit corrections
+  applied + independent Debian verification; see STATE.md for evidence and limits).
+  - **Objective:** the one `Position` (mailbox + derived `occ`/`byPiece` + side +
+    castling + recorded ep (canonical *for the key* via `pos_canon_ep_file`) + wide
+    rule50 + hash); FEN
   parse/set; invariants (derived bitboards == recompute; hash reproducibility).
 - **Deps:** T002. **Files:** `src/position/{position,fen}.*`.
 - **Accept:** FEN set/parse round-trip (startpos + specials); invariants hold; a
-  from-scratch hash matches the incremental one.
+  from-scratch hash matches the stored one. StateInfo and incremental move updates
+  belong to T004. FEN draw counters are bounded by storage, not draw thresholds.
 
 ### T004 — reversible move application (make/unmake) + MoveDelta/StateInfo
 - **Objective:** `make`/`unmake` restoring **all** logical state + hash exactly;
-  chess-level `MoveDelta`/`StateInfo` (no NNUE types); canonicalized ep; null
+  chess-level `MoveDelta`/`StateInfo` (no NNUE types); recorded ep retained and only
+  its key component canonicalized; null
   moves add no fictitious repetition; wide counters validated; repetition history
   independent of the search stack.
-- **Deps:** T003. **Files:** `src/position/{stateinfo,move}.*` (make/unmake).
-- **Accept:** seeded random legal make/unmake chains restore every field + a
-  freshly recomputed hash; ep/castle/promo/null cases covered; ASan/UBSan clean.
+- **Deps:** T003. **Files:** `src/position/state.{h,c}` and position interfaces.
+  Use `pos_make_move` / `pos_unmake_move`; core `make_move` already encodes a Move.
+- **Accept:** hand-built quiet/pawn/capture/EP/castle/promotion/underpromotion/null
+  fixtures restore every logical field, derived cache and freshly recomputed key.
+  Halfmove resets on every pawn move or capture. Every double push records raw EP;
+  undo restores it exactly. Guard wide-counter increments; never wrap. ASan/UBSan
+  clean. Seeded legal chains require movegen and are deferred to T005.
 
 ### T005 — legal move generation + special cases + perft/differential
 - **Objective:** pseudo/legal gen, captures, evasions; en-passant, castling,

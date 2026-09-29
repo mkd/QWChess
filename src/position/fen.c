@@ -4,8 +4,8 @@
  * scratch Position, rebuilds its derived caches, runs pos_validate, and only on
  * full success commits it to *pos (the caller's Position is left untouched on
  * failure, with *why set to a short, fielded reason). Emission is the exact
- * inverse for every position it accepts -- recorded en-passant square (or "-"),
- * board-backed castling, placement, side and counters -- so a well-formed FEN
+ * inverse at the level of logical state. It preserves the recorded en-passant
+ * square and normalizes placement runs and castling order. Canonical FEN text
  * round-trips byte-for-byte. No move generation, no Network, no heap.
  *
  * FEN grammar accepted (see docs): <placement> <side> <castling> <en-passant>
@@ -191,8 +191,8 @@ int fen_load(Position *pos, const char *fen, const char **why) {
   if (!parse_side(f[1], n[1], &tmp.side, why)) return 0;
   if (!parse_castling(f[2], n[2], &tmp.cr, why)) return 0;
   if (!parse_ep(f[3], n[3], &tmp.ep_sq, why)) return 0;
-  if (!parse_uint(f[4], n[4], 3, POS_HM_MAX, &v, why, "halfmove field")) return 0;
-  tmp.halfmove = (HalfMoveClock)v;   /* v <= POS_HM_MAX (100): fits a u16 */
+  if (!parse_uint(f[4], n[4], 5, POS_HM_MAX, &v, why, "halfmove field")) return 0;
+  tmp.halfmove = (HalfMoveClock)v;   /* checked before narrowing to u16 */
   if (!parse_uint(f[5], n[5], 5, 0xFFFF, &v, why, "fullmove field")) return 0;
   if (v < 1) { if (why) *why = "fullmove must be at least 1"; return 0; }
   tmp.fullmove = (FullMoveNumber)v;  /* v <= 0xFFFF: fits a u16 */
@@ -250,6 +250,8 @@ static void write_num(char *out, int *i, int v) {
 int fen_emit(const Position *pos, char *out, int outsz) {
   if (out == NULL || pos == NULL || outsz <= 0)
     return 0;
+  if (!pos_validate(pos, NULL))
+    return 0;   /* invalid input: do not write a partial or malformed FEN */
   int total = fen_len(pos);
   if (total + 1 > outsz)
     return 0;   /* buffer too small: leave *out untouched */

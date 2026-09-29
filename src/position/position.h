@@ -14,7 +14,8 @@
  *
  * En passant: `ep_sq` is the RECORDED target -- the square a double push would
  * let an adjacent pawn capture onto -- retained even when no capture is actually
- * legal, matching Stockfish (the ep square is recorded after any double push).
+ * legal. This is QwenChess's FEN-preserving storage convention; it does not
+ * require Stockfish to use the same internal representation.
  * It must be structurally consistent with a just-played double push (see
  * pos_ep_is_valid_meta: correct rank for the side, an empty destination, the
  * enemy pawn on the just-pushed square, a vacant double-push origin, and a zero
@@ -31,10 +32,10 @@
 #include "core/types.h"
 #include "core/bitboard.h"
 
-/* Documented bound: halfmove clock beyond this is a 50-move draw. The counter
- * is stored wide (u16); values above the bound are structurally rejected, and
- * no counter ever silently wraps (the u16 domain is validated at the boundary). */
-#define POS_HM_MAX 100
+/* Storage bound, independent of draw adjudication. FEN counters are checked
+ * before narrowing to u16; T004 must also prevent arithmetic overflow. A draw
+ * threshold does not make a position structurally invalid. */
+#define POS_HM_MAX UINT16_MAX
 
 typedef struct Position {
   /* -- inputs (set by a setup path; T004 make/unmake) -- */
@@ -58,7 +59,9 @@ void pos_set_startpos(Position *pos);   /* orthodox start: W, CR_ALL, no ep, hm 
 
 /* Recompute every derived field (bitboards, occupancy, king squares, key) from
  * the inputs. Cold path only (not the make/unmake hot path, which lands in
- * T004); safe to call on any Position. Does not touch the inputs. */
+ * T004); safe on initialized inputs even with invalid piece codes. Out-of-table
+ * codes are skipped to keep indexing bounded; pos_validate still rejects them.
+ * Does not touch the inputs and does not make an invalid Position valid. */
 void pos_rebuild(Position *pos);
 
 /* Position key for a snapshot (the exact zobrist convention, canonical ep). */
@@ -75,6 +78,18 @@ int pos_canon_ep_file(const Position *pos);
  * capturing king not in check. Depends only on the mailbox + side (it locates the
  * king there); no legal move generation is performed. */
 int pos_ep_is_legal(const Position *pos);
+
+/* True iff the friendly pawn on `captor` makes a king-safe en-passant capture of
+ * the recorded target (the enemy pawn on the just-pushed square, derived from
+ * `pos`). `captor` must be a friendly pawn on the captured pawn's rank (one rank
+ * behind the recorded target) on an adjacent file; any other square yields 0.
+ * This is the per-captor form of pos_ep_is_legal (which is the OR over the
+ * up-to-two adjacent captors); it exposes the king-safety test so a specific
+ * capture -- e.g. "c5d6 is legal but e5d6 is not" -- can be verified on its own.
+ * The capturing king does not move; the captured pawn is removed first, so it no
+ * longer generates attacks; sliders (including pinned enemy pieces) are counted
+ * geometrically. An absent or malformed EP record returns 0. Cold path. */
+int pos_ep_capture_is_safe(const Position *pos, Square captor);
 
 /* True iff the recorded ep target is acceptable: absent, or structurally
  * consistent with a double push just played (correct rank for the side, an empty

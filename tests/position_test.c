@@ -193,7 +193,7 @@ static int t_counters(void) {
     QWC_EQ_U64(p.key, base, "key unchanged by fullmove");
   }
   p.halfmove = (HalfMoveClock)200; pos_rebuild(&p);
-  QWC_TRUE(pos_validate(&p, NULL) == 0, "halfmove > 100 rejected");
+  QWC_TRUE(pos_validate(&p, NULL), "draw threshold is not a structural bound");
   p.halfmove = 0;
   p.fullmove = 0; pos_rebuild(&p);
   QWC_TRUE(pos_validate(&p, NULL) == 0, "fullmove 0 rejected");

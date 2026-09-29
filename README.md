@@ -37,8 +37,8 @@ directories are gitignored and isolated from the normal source tree.
 make                 # release engine        -> build/release/bin/qwenchess
 make debug           # debug engine          -> build/debug/bin/qwenchess
 make sanitize        # ASan+UBSan engine     -> build/sanitize/bin/qwenchess
-make test            # build + run scaffold test (release flags)
-make test-sanitize   # build + run the test under ASan/UBSan
+make test            # build + run all tests (release flags)
+make test-sanitize   # build + run all tests under ASan/UBSan
 make net             # fetch + verify the NNUE network into networks/
 make test-net        # net-checker self-test (rejects bad, accepts good)
 make clean           # remove all build output
@@ -48,7 +48,11 @@ The normal build works fully offline and never requires the network download.
 
 ## Status
 
-Early scaffold (task T001): foundational types, a monotonic clock, a build
-system, and a passing scaffold test. The engine binary identifies itself as a
-scaffold and is **not** a playable UCI engine yet. See `docs/STATE.md` for the
-current milestone and `docs/PLAN.md` for the roadmap.
+M1 (board correctness): the board core is complete and tested — fixed-width
+types, bitboards, move encode/decode, portable attacks, Zobrist hashing, the
+authoritative `Position` (with representation-boundary validation), and strict
+FEN load/emit (en-passant record/normalization, draw counters bounded by
+storage). This is a board/foundation layer: the engine binary is a scaffold and
+is **not** a playable UCI engine. No search, UCI protocol, NNUE evaluation, or
+playing strength is implemented yet. See `docs/STATE.md` for the current
+milestone and `docs/PLAN.md` for the roadmap.

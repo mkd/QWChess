@@ -85,20 +85,46 @@ static int ep_capture_is_safe(const Position *pos, Square captor, Square origin,
   return 1;
 }
 
-/* A fully-legal en-passant capture exists iff the double-pushed enemy pawn is
- * present and at least one of the (up to two) adjacent friendly captors makes a
- * king-safe capture. Depends only on the mailbox + side (it locates the king
- * there), so it has no rebuild precondition. Both pawns share one rank `pr`; the
- * ep target square itself is empty. */
-int pos_ep_is_legal(const Position *pos) {
+/* Per-captor king-safety of one en-passant capture (the public form of the
+ * static ep_capture_is_safe above): `captor` must be a friendly pawn on the
+ * captured pawn's rank, on an adjacent file; anything else is not a captor. The
+ * captured pawn and the double-pushed target are derived from the recorded
+ * ep square. This is the single source of truth for "is this captor king-safe?"
+ * that both pos_ep_is_legal (the OR over captors) and the tests use. */
+int pos_ep_capture_is_safe(const Position *pos, Square captor) {
+  if (captor >= SQ_NB)
+    return 0;
   Square ep = pos->ep_sq;
-  if (ep >= SQ_NB)
+  if (ep >= SQ_NB || !pos_ep_is_valid_meta(pos))
     return 0;
   int f = file_of(ep), r = rank_of(ep);
   int pr = (pos->side == WHITE) ? r - 1 : r + 1;   /* captured pawn's rank */
   if (pr < 0 || pr >= RANK_NB)
     return 0;
-  Piece own_pawn   = (pos->side == WHITE) ? W_PAWN : B_PAWN;
+  if (rank_of(captor) != pr)
+    return 0;                                   /* captor sits on the pawn's rank */
+  int cf = file_of(captor);
+  if (cf != f - 1 && cf != f + 1)
+    return 0;                                   /* adjacent file only */
+  Piece own_pawn = (pos->side == WHITE) ? W_PAWN : B_PAWN;
+  if (pos->mailbox[captor] != own_pawn)
+    return 0;
+  return ep_capture_is_safe(pos, captor, square_of(f, pr), ep, own_pawn);
+}
+
+/* A fully-legal en-passant capture exists iff the double-pushed enemy pawn is
+ * present and at least one of the (up to two) adjacent friendly captors makes a
+ * king-safe capture (pos_ep_capture_is_safe). Depends only on the mailbox +
+ * side (it locates the king there), so it has no rebuild precondition. Both
+ * pawns share one rank `pr`; the ep target square itself is empty. */
+int pos_ep_is_legal(const Position *pos) {
+  Square ep = pos->ep_sq;
+  if (ep >= SQ_NB || !pos_ep_is_valid_meta(pos))
+    return 0;
+  int f = file_of(ep), r = rank_of(ep);
+  int pr = (pos->side == WHITE) ? r - 1 : r + 1;   /* captured pawn's rank */
+  if (pr < 0 || pr >= RANK_NB)
+    return 0;
   Piece enemy_pawn = (pos->side == WHITE) ? B_PAWN : W_PAWN;
   if (pos->mailbox[square_of(f, pr)] != enemy_pawn)
     return 0;                               /* no captured enemy pawn */
@@ -106,10 +132,7 @@ int pos_ep_is_legal(const Position *pos) {
   for (int df = -1; df <= 1; df += 2) {
     if (f + df < 0 || f + df >= FILE_NB)
       continue;
-    Square cs = square_of(f + df, pr);
-    if (pos->mailbox[cs] != own_pawn)
-      continue;
-    if (ep_capture_is_safe(pos, cs, square_of(f, pr), ep, own_pawn))
+    if (pos_ep_capture_is_safe(pos, square_of(f + df, pr)))
       return 1;
   }
   return 0;
@@ -129,9 +152,13 @@ int pos_canon_ep_file(const Position *pos) {
  * structurally valid but uncapturable target is a valid Position that simply
  * contributes no ep file to the key.) */
 int pos_ep_is_valid_meta(const Position *pos) {
+  if (pos->side >= COLOR_NB)
+    return 0;
   Square ep = pos->ep_sq;
   if (ep == NO_SQUARE)
     return 1;
+  if (ep >= SQ_NB)
+    return 0;
   int f = file_of(ep), r = rank_of(ep);
   int pr   = (pos->side == WHITE) ? r - 1 : r + 1;   /* captured pawn rank   */
   int orng = (pos->side == WHITE) ? r + 1 : r - 1;   /* double-push origin rank */
@@ -161,7 +188,7 @@ void pos_rebuild(Position *pos) {
   pos->byColor[BLACK] = 0;
   for (int s = 0; s < SQ_NB; s++) {
     int p = pos->mailbox[s];
-    if (!p)
+    if (!p || p >= PIECE_NB)
       continue;
     u64 b = square_bb((Square)s);
     pos->byPiece[p] |= b;
@@ -280,7 +307,11 @@ int pos_validate(const Position *pos, const char **why) {
   u64 eOcc = 0, eW = 0, eB = 0;
   for (int s = 0; s < SQ_NB; s++) {
     int p = pos->mailbox[s];
-    if (p >= PIECE_NB) { if (why) *why = "mailbox holds an invalid piece code"; return 0; }
+    if (p != NO_PIECE && !((p >= W_PAWN && p <= W_KING) ||
+                          (p >= B_PAWN && p <= B_KING))) {
+      if (why) *why = "mailbox holds an invalid piece code";
+      return 0;
+    }
     if (p) {
       u64 b = square_bb((Square)s);
       eOcc |= b;
@@ -290,6 +321,7 @@ int pos_validate(const Position *pos, const char **why) {
   for (int c = 0; c < COLOR_NB; c++)
     if (pos->byColor[c] != (c == WHITE ? eW : eB)) { if (why) *why = "color occupancy != recompute"; return 0; }
   if (pos->occ != eOcc) { if (why) *why = "occupancy != recompute"; return 0; }
+  if (pos->byPiece[NO_PIECE] != 0) { if (why) *why = "empty-piece bitboard must be zero"; return 0; }
   for (int p = 1; p < PIECE_NB; p++) {
     u64 e = 0;
     for (int s = 0; s < SQ_NB; s++)
@@ -303,7 +335,7 @@ int pos_validate(const Position *pos, const char **why) {
   if (!v_pawn_ranks(pos, why)) return 0;
   if (!v_piece_counts(pos, why)) return 0;
   if (!v_cr_backing(pos, why)) return 0;
-  if (pos->halfmove > POS_HM_MAX) { if (why) *why = "halfmove clock above bound"; return 0; }
+  /* HalfMoveClock's entire u16 range is representable; draw policy is separate. */
   if (pos->fullmove < 1) { if (why) *why = "fullmove number must be >= 1"; return 0; }
   if (!v_ep(pos, why)) return 0;
   if (!v_no_check_nonmover(pos, why)) return 0;

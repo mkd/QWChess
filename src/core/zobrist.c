@@ -61,7 +61,7 @@ u64 zobrist_compute(const u8 mailbox[64], Color side, u8 rights, int ep_file) {
   u64 h = 0;
   for (int s = 0; s < SQ_NB; s++) {
     int p = mailbox[s];
-    if (p) h ^= g_piece[p][s];
+    if (p && p < PIECE_NB) h ^= g_piece[p][s];
   }
   h ^= (side < COLOR_NB) ? g_side[side] : 0;
   h ^= g_castling[rights & 0xF];

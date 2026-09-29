@@ -27,6 +27,8 @@ u64 zobrist_castling(u8 rights);         /* rights in 0..15 */
 u64 zobrist_ep_file(int file);           /* file in 0..7 */
 
 /* Full key from a chess-agnostic snapshot. mailbox[s] = Piece (0 = empty).
+ * Out-of-table piece codes are ignored for memory safety; this does not validate
+ * a board. The Position validator rejects all undefined chess piece codes.
  * ep_file = file of a canonically-legal ep target, or -1 for none. */
 u64 zobrist_compute(const u8 mailbox[64], Color side, u8 rights, int ep_file);
 

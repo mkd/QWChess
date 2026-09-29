@@ -14,3 +14,8 @@ reference/
 *~
 .*.swp
 .DS_Store
+
+# Local review artifacts: the source-audit bundle and the original upload it was
+# generated from. Kept on disk for reference, never committed.
+QWChess-Source-Audit/
+qwc_code.zip
