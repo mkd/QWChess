@@ -42,9 +42,10 @@ build a minimal tested C17 scaffold. No chess logic.
   key constants + XOR-delta vs a full recompute over 17 fixtures incl. reverse +
   state restore (187). `make check-c17` (9 files) + `make test` + `make test-sanitize`
   pass; `make clean` removes only `build/`.
-- **Still open in M1:** T004 (make/unmake) → T005 (movegen/perft).
-  T003 is complete with the source-audit corrections. T004 verifies explicit
-  make/unmake fixtures; T005 adds seeded legal sequences through movegen.
+- **Still open in M1:** T004 checkpoints 2–5 (EP capture / castling / promotion / null
+  make-unmake) → T005 (movegen + perft). T003 is complete; **T004 checkpoint 1
+  (ordinary-move make/unmake) is done** and verifies explicit make/unmake fixtures;
+  seeded legal sequences land in T005 once movegen exists.
 
 ### T003 — Position + FEN + logical-state invariants
 - **Status:** implemented, tested, and **committed** (source-audit corrections
@@ -59,6 +60,10 @@ build a minimal tested C17 scaffold. No chess logic.
   belong to T004. FEN draw counters are bounded by storage, not draw thresholds.
 
 ### T004 — reversible move application (make/unmake) + MoveDelta/StateInfo
+- **Status:** **checkpoint 1 (ordinary moves) done + committed** — `pos_make_move` /
+  `pos_unmake_move` + `StateInfo`/`MoveDelta` for quiet / ordinary capture / pawn
+  single+double push / ordinary pawn capture; EP capture, castling, promotion and null
+  moves are reserved in the delta and rejected cleanly (checkpoints 2–5). See STATE.md.
 - **Objective:** `make`/`unmake` restoring **all** logical state + hash exactly;
   chess-level `MoveDelta`/`StateInfo` (no NNUE types); recorded ep retained and only
   its key component canonicalized; null

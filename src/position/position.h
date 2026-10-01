@@ -7,8 +7,10 @@
  * Piece codes, square numbering and sentinels are unchanged (see core/types.h).
  *
  * Ownership/lifetime: a Position is a plain, stack- or worker-allocated value;
- * nothing here points at another Position or a StateInfo. The undo record and
- * the full repetition history are added in T004. Position/StateInfo contain NO
+ * nothing inside the struct points at another Position or a StateInfo. The undo
+ * record (StateInfo/MoveDelta) and the reversible make/unmake API live in
+ * position/state.h (included at the bottom); the full repetition history stays
+ * independent of the position and is deferred. Position/StateInfo contain NO
  * NNUE types, feature indices or evaluator caches. No heap allocation is
  * performed by the functions in this checkpoint.
  *
@@ -104,5 +106,10 @@ int pos_ep_is_valid_meta(const Position *pos);
  * *why to a short reason (may be NULL) otherwise. Never mutates *pos. This is a
  * representation-consistency check, NOT a move-legality or reachability proof. */
 int pos_validate(const Position *pos, const char **why);
+
+/* The undo record (StateInfo/MoveDelta) and the reversible make/unmake API.
+ * Included last so the Position struct above is complete when state.h sees it;
+ * state.h forward-declares `struct Position` rather than including this header. */
+#include "position/state.h"
 
 #endif /* QWC_POSITION_POSITION_H */
