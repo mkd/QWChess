@@ -42,10 +42,10 @@ build a minimal tested C17 scaffold. No chess logic.
   key constants + XOR-delta vs a full recompute over 17 fixtures incl. reverse +
   state restore (187). `make check-c17` (9 files) + `make test` + `make test-sanitize`
   pass; `make clean` removes only `build/`.
-- **Still open in M1:** T004 checkpoints 2–5 (EP capture / castling / promotion / null
-  make-unmake) → T005 (movegen + perft). T003 is complete; **T004 checkpoint 1
-  (ordinary-move make/unmake) is done** and verifies explicit make/unmake fixtures;
-  seeded legal sequences land in T005 once movegen exists.
+ - **Still open in M1:** T004 checkpoints 4–5 (promotion / null make-unmake) →
+   T005 (movegen + perft). T003 is complete; **T004 checkpoints 1 (ordinary-move),
+   2 (en-passant capture) and 3 (orthodox castling) are done** and verify explicit
+   make/unmake fixtures; seeded legal sequences land in T005 once movegen exists.
 
 ### T003 — Position + FEN + logical-state invariants
 - **Status:** implemented, tested, and **committed** (source-audit corrections
@@ -60,10 +60,14 @@ build a minimal tested C17 scaffold. No chess logic.
   belong to T004. FEN draw counters are bounded by storage, not draw thresholds.
 
 ### T004 — reversible move application (make/unmake) + MoveDelta/StateInfo
-- **Status:** **checkpoint 1 (ordinary moves) done + committed** — `pos_make_move` /
-  `pos_unmake_move` + `StateInfo`/`MoveDelta` for quiet / ordinary capture / pawn
-  single+double push / ordinary pawn capture; EP capture, castling, promotion and null
-  moves are reserved in the delta and rejected cleanly (checkpoints 2–5). See STATE.md.
+ - **Status:** **checkpoints 1+2+3 done** — cp1 (ordinary moves) committed
+   (`00a579c`); cp2 (en-passant capture) and cp3 (orthodox castling) verified in
+   the working tree, uncommitted: `pos_make_move` / `pos_unmake_move` +
+   `StateInfo`/`MoveDelta` now cover quiet / ordinary capture / pawn single+double
+   push / ordinary pawn capture / EP capture (3-edit delta) / orthodox castling
+   (4-edit delta; rights/ep/counters/key exact on unmake); promotion/underpromotion
+   and null moves remain reserved in the delta and are rejected cleanly
+   (checkpoints 4–5). See STATE.md.
 - **Objective:** `make`/`unmake` restoring **all** logical state + hash exactly;
   chess-level `MoveDelta`/`StateInfo` (no NNUE types); recorded ep retained and only
   its key component canonicalized; null

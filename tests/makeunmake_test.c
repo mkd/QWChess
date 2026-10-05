@@ -323,11 +323,20 @@ static int t_malformed(void) {
   check_reject(&pos, &st, mv(4, 0, 4, 0), "from == to (e1e1)");
   check_reject(&pos, &st, (Move)(mv(4, 1, 4, 2) | (1u << 15)), "reserved bit 15 set");
   check_reject(&pos, &st, (Move)(mv(4, 1, 4, 2) | (1u << 19)), "reserved bits 19..31 set");
-  check_reject(&pos, &st, mvf(4, 0, 6, 0, MV_CASTLE, NO_PIECE), "castling flag");
+  /* e1->g1 with MV_CASTLE is the king-to-king spelling, which is non-orthodox
+   * under the frozen king-origin-to-rook-origin encoding (and the path is
+   * blocked on the start position); checkpoint 3 rejects it on the destination. */
+  check_reject(&pos, &st, mvf(4, 0, 6, 0, MV_CASTLE, NO_PIECE), "castle e1g1 (non-orthodox destination, not a rook origin)");
   check_reject(&pos, &st, mv(0, 6, 0, 5), "source holds a black piece while white to move (a7)");
   check_reject(&pos, &st, mv(0, 0, 1, 0), "friendly destination (a1 rook -> b1 knight)");
 
-  /* a promotion / underpromotion / en-passant flagged move (rejected on the flag) */
+  /* promotions and underpromotions are now supported (checkpoint 4): a7a8=Q and
+   * a7a8=R are valid straight promotions (the a7 pawn reaches the last rank on an
+   * empty square). Each is accepted, its promoted piece verified on a8, and then
+   * undone so the MV_EP check below still sees the original board. (The dedicated
+   * promotion_makeunmake_test.c verifies the full family. The MV_EP e5xd6 below
+   * is still rejected: this position records NO en-passant target for d6, and a
+   * valid EP capture must target the recorded square -- checkpoint 2.) */
   newpos(&pos, WHITE, 0, 0, 1);
   place(&pos, sq_of(0, 6), W_PAWN);   /* a7 */
   place(&pos, sq_of(4, 0), W_KING);   /* e1 */
@@ -335,9 +344,18 @@ static int t_malformed(void) {
   place(&pos, sq_of(3, 4), B_PAWN);   /* d5: an e5xd6 ep is geometrically real */
   place(&pos, sq_of(4, 4), W_PAWN);   /* e5 */
   pos_rebuild(&pos);
-  check_reject(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, QUEEN), "promotion a7a8=Q");
-  check_reject(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, ROOK), "underpromotion a7a8=R");
-  check_reject(&pos, &st, mvf(4, 4, 3, 5, MV_EP, NO_PIECE), "MV_EP diagonal to d6");
+  {
+    Position pbefore = pos;
+    check_accept(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, QUEEN), "promotion a7a8=Q");
+    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)W_QUEEN, "a8 holds the promoted queen");
+    pos_unmake_move(&pos, &st);
+    QWC_TRUE(pos_equal(&pos, &pbefore), "a7a8=Q undone exactly");
+    check_accept(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, ROOK), "underpromotion a7a8=R");
+    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)W_ROOK, "a8 holds the promoted rook");
+    pos_unmake_move(&pos, &st);
+    QWC_TRUE(pos_equal(&pos, &pbefore), "a7a8=R undone exactly");
+  }
+  check_reject(&pos, &st, mvf(4, 4, 3, 5, MV_EP, NO_PIECE), "MV_EP e5xd6 with no recorded ep target");
 
   /* a knight to a non-attack square (manhattan 4) and to a same-colour square */
   newpos(&pos, WHITE, 0, 0, 1);
