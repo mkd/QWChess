@@ -67,7 +67,10 @@ the host's RAM. (The on-disk net is 94 MiB; weights decompress larger in memory.
 
 - `Square` = 0..63 (`a1=0 … h8=63`, `s = rank*8+file`); `NO_SQUARE = 64` sentinel.
 - `Piece`/`PieceType`/`Color` values mirror Stockfish to ease later NNUE parity.
-- `Move` = 32-bit `{from:6, to:6, flags:4, promoType:3}`; `0` = null/no move.
+- `Move` = 32-bit `{from:6, to:6, flags:3, reserved:1, promoType:3}` (bits 0..18;
+  bits 19..31 reserved, must be 0 per `move_repr_is_valid`); `0` = null/no move.
+  Flags: `MV_EP|MV_PROMO|MV_CASTLE` (bits 12..14); bit 15 reserved; `promoType`
+  2..5 = KNIGHT..QUEEN under a `MV_PROMO` move.
 - `Value` = `int32_t`, **side-to-move** perspective; the one score type.
 - `MAX_PLY = 256` (QwenChess's own; SF's 246 is an upstream reference fact only).
 - `MAX_PLY_STACK = MAX_PLY + 1`.
