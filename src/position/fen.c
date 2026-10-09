@@ -199,7 +199,12 @@ int fen_load(Position *pos, const char *fen, const char **why) {
 
   /* Rebuild the derived caches, then require the full local-admissibility
    * contract (kings, pawns, counts, check, castling backing, EP metadata, key).
-   * Only a position that passes is committed. */
+   * Only a position that passes is committed.
+   *
+   * History: `tmp` was zero-initialized, so `tmp.history` is NULL -- a
+   * successful load therefore starts a FRESH history (the prior chain is
+   * abandoned but its caller-owned records are left in place), and a failed load
+   * leaves *pos -- and its existing history pointer -- untouched. */
   pos_rebuild(&tmp);
   if (!pos_validate(&tmp, why)) return 0;
   *pos = tmp;

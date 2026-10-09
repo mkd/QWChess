@@ -4,9 +4,9 @@
  * ORDINARY moves (checkpoint 1: quiet moves, ordinary captures, pawn
  * single/double pushes, ordinary pawn captures), EN-PASSANT captures (checkpoint
  * 2), orthodox CASTLING (checkpoint 3: the 4-edit application in the apply path
- * below), and PROMOTIONS/underpromotions (checkpoint 4: the 2-edit application).
- * Null moves are the final T004 checkpoint and are still rejected cleanly here
- * (reserved in the delta's capacity).
+ * below), PROMOTIONS/underpromotions (checkpoint 4: the 2-edit application), and
+ * the NULL move + repetition history (checkpoint 5: the zero-edit application
+ * with the caller-owned history chain + pos_repetition_count).
  *
  * Everything here is chess-level: no NNUE types, feature indices or evaluator
  * state. make() validates every input, records the before-state + a bounded
@@ -411,7 +411,10 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
   int is_cap = (dest != NO_PIECE) && !is_castle_mv;
   int is_pawn_mv = piece_is_pawn(mover);
 
-  /* record the before-state + the bounded board delta in the undo record */
+  /* record the before-state + the bounded board delta in the undo record. The
+   * `prev` link captures the earlier history head so unmake can restore it (the
+   * chain is pure bookkeeping -- it does not change the move itself). */
+  state->prev         = pos->history;
   state->prev_key      = pos->key;
   state->prev_side     = (u8)side;
   state->prev_cr       = pos->cr;
@@ -506,6 +509,11 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
   key ^= (old_ep_file >= 0 ? zobrist_ep_file(old_ep_file) : 0);
   key ^= (new_ep_file >= 0 ? zobrist_ep_file(new_ep_file) : 0);
   pos->key = key;
+  /* This record is now the latest applied transition: advance the history head.
+   * (Reaching here means move_supported validated the move, so it is fully
+   * applied; a rejected move returns before any field -- including this one --
+   * is written.) */
+  pos->history = state;
   return 1;
 }
 
@@ -519,7 +527,7 @@ void pos_unmake_move(Position *pos, StateInfo *state) {
     return;
   const MoveDelta *d = &state->delta;
   for (int i = 0; i < d->edit_count; i++)
-    revert_edit(pos, &d->edits[i]);
+    revert_edit(pos, &d->edits[i]);   /* a null has zero edits: this loop is a no-op */
   pos_update_kings(pos);
   pos->cr        = state->prev_cr;
   pos->ep_sq     = state->prev_ep;
@@ -527,4 +535,98 @@ void pos_unmake_move(Position *pos, StateInfo *state) {
   pos->fullmove  = state->prev_fullmove;
   pos->side      = (Color)state->prev_side;
   pos->key       = state->prev_key;
+  /* Undo the history push: restore the earlier head (the record's own `prev`
+   * link). This makes the repetition count (pos_repetition_count) come back to
+   * exactly what it was before the matching make/null. */
+  pos->history = state->prev;
+}
+
+/* ---- public: null move (a synthetic pass) ---------------------------------
+ * A pass: no board edit; flip the side; clear the recorded EP; preserve BOTH
+ * counters (halfmove and fullmove) for either color. This is a distinct entry
+ * point because the ordinary pos_make_move rejects the move value 0 (the no-move
+ * sentinel, from=to=0 with no flags). The only null-specific write guard is the
+ * in-check test (a pass cannot address a check); the full malformed-board
+ * validator is a setup concern and is deliberately NOT run here. On success the
+ * record links into Position.history; on rejection *pos and *state are both left
+ * byte-for-byte unchanged. Null-move pruning policy (depth, material, zugzwang,
+ * consecutive-null suppression) is a search concern, not applied here. */
+int pos_make_null_move(Position *pos, StateInfo *state) {
+  if (pos == NULL || state == NULL)
+    return 0;
+  /* Reject a pass from check before any write: the board is unchanged by a null,
+   * so it cannot get the king out of check. */
+  if (pos_is_in_check(pos, pos->side))
+    return 0;
+
+  /* Record the before-state (the common undo contract). The castling rights and
+   * both counters are unchanged by a null but recorded anyway so unmake restores
+   * every field through the single prev_* path. Zero board edits; move 0 marks
+   * the record as a null. */
+  state->prev          = pos->history;   /* link into the history chain (LIFO) */
+  state->prev_key      = pos->key;
+  state->prev_side     = (u8)pos->side;
+  state->prev_cr       = pos->cr;
+  state->prev_ep       = pos->ep_sq;
+  state->prev_halfmove = pos->halfmove;  /* preserved: a null neither advances nor resets it */
+  state->prev_fullmove = pos->fullmove;
+  state->delta.move       = 0;           /* the unambiguous null marker */
+  state->delta.edit_count = 0;           /* zero square edits */
+
+  /* The old canonical EP file, captured before the record is cleared. An
+   * uncapturable raw EP record contributed no file (file -1), so this XORs in
+   * nothing in that case; a capturable one removes exactly its file key. */
+  int old_ep_file = pos_canon_ep_file(pos);
+
+  /* Apply the transition: flip the side, clear the recorded EP. Pieces,
+   * byPiece, byColor, occupancy, king squares and castling rights are untouched. */
+  pos->ep_sq = NO_SQUARE;
+  pos->side = other(pos->side);
+
+  /* Incremental key, kept exact: pieces and castling are unchanged, so only the
+   * side toggles and the old canonical EP contribution is removed (a null leaves
+   * no new EP). This equals a from-scratch rebuild of the result. */
+  u64 key = state->prev_key;
+  key ^= zobrist_side((Color)state->prev_side) ^ zobrist_side(pos->side);
+  if (old_ep_file >= 0)
+    key ^= zobrist_ep_file(old_ep_file);
+  pos->key = key;
+
+  pos->history = state;   /* this record is now the latest applied transition */
+  return 1;
+}
+
+/* ---- public: repetition occurrence count (the production query) -----------
+ * Counts the occurrences of the current canonical key in the reachable history,
+ * plus the current position if it is a real node (see the contract in state.h):
+ * a fresh setup returns 1, a null-produced node returns 0, and the walk never
+ * crosses a null transition into earlier history. Each record stores its
+ * parent's key, so before counting a record's saved key the transition that
+ * PRODUCED that parent is inspected (a null producer is never a played
+ * occurrence and stops the walk). Read-only O(history); no allocation. */
+int pos_repetition_count(const Position *pos) {
+  if (pos == NULL)
+    return 0;
+  u64 k = pos->key;
+  int count = 0;
+  StateInfo *h = pos->history;   /* the transition that produced the current position, or NULL (a fresh setup) */
+  /* The current position is a played occurrence unless it was produced by a
+   * null. A fresh setup (h == NULL) is a real node, so it counts exactly 1. */
+  if (h == NULL || !is_null_move(h->delta.move))
+    count = 1;
+  /* Walk the parents, newest first. `h` is the transition that acted on the
+   * position whose key is `h->prev_key`; that position was produced by
+   * `h->prev`. Inspect the producer BEFORE counting the saved key. */
+  while (h != NULL) {
+    StateInfo *producer = h->prev;   /* the record that produced the parent, or NULL (the setup root) */
+    if (producer == NULL) {
+      if (h->prev_key == k) count++;   /* the setup root is a real occurrence */
+      break;                           /* no history before the root */
+    }
+    if (is_null_move(producer->delta.move))
+      break;                           /* the parent is a null node: not counted, do not cross */
+    if (h->prev_key == k) count++;     /* a real descendant within this segment */
+    h = producer;
+  }
+  return count;
 }

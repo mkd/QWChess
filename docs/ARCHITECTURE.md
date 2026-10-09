@@ -44,7 +44,8 @@ sub-files, `search/`, and the responsive-UCI pieces of `engine/`.
 | **Finny / accumulator refresh cache** | **mutable** | **per-worker** | per worker | **yes (rebuild)** |
 | `AccumulatorStack` (per-ply accumulators) | mutable | per-worker | per worker | yes |
 | `Position` | mutable | **per-worker** (single board) | per worker | n/a |
-| `StateInfo`/undo stack, `MoveDelta`s | mutable | per-worker | per worker (≤ MAX_PLY_STACK) | n/a |
+| `StateInfo`/undo stack, `MoveDelta`s | mutable | per-worker | per worker (≤ MAX_PLY_STACK for the search stack) | n/a |
+| `StateInfo.prev` chain + `Position.history` | mutable | per-worker | **uncapped** (caller-owned, not `MAX_PLY`-bounded) | n/a |
 | `SearchStack`, histories | mutable | per-worker | per worker | n/a |
 | `TranspositionTable` | mutable | shared (atomics-guarded) | process (sized by option) | cleared |
 
@@ -95,26 +96,38 @@ entries as non-reusable across search cycles.
 contain NNUE/SFNNv16 types or compute feature indices.
 
 ```c
-/* Chess-level description of a reversible board change (before -> after). */
-struct MoveDelta {
-  Move      move;          /* from, to, flags (ep/promo/castle) */
-  Piece     captured;      /* piece removed from `to`, or NO_PIECE (ep handled via flags) */
-  Piece     moved;         /* the moving piece (pre-move identity) */
-  uint8_t   prev_cr;       /* castling rights before the move */
-  HalfMoveClock prev_rule50; /* full-width halfmove clock before */
-  FullMoveNumber prev_fullmove; /* fullmove number before */
-  u64       prev_key;      /* position key before */
-  Square    prev_ep;       /* exact recorded ep square before, or NO_SQUARE */
-  Color     prev_side;     /* side to move before */
+/* One board-square change: the square and its piece before and after the move.
+ * NO_PIECE in a field means that square was / is empty. */
+struct SquareEdit { Square sq; Piece before; Piece after; };
+
+/* The reversible board change of one move: the applied Move + the populated
+ * edits. A null move has zero edits; a quiet move 2; an EP capture 3; an orthodox
+ * castle 4 (MAX_EDIT = 4). `edits` is the full chess-level before/after that a
+ * future NNUE consumer rebuilds its feature deltas from. */
+struct MoveDelta { Move move; int edit_count; SquareEdit edits[4]; };
+
+/* The undo record: the board delta + the previous (irreversible) scalars + a
+ * link into the repetition-history chain. `prev` points at the earlier record
+ * (NULL for the first record after a setup). A record's null-ness is its
+ * `move == 0` / zero edits; no extra flag is stored. The caller owns the records
+ * (stable addresses) and undoes in strict LIFO order. */
+struct StateInfo {
+  MoveDelta  delta;
+  u64        prev_key;      u8 prev_side;  u8 prev_cr;
+  Square     prev_ep;       u16 prev_halfmove;  u16 prev_fullmove;
+  struct StateInfo *prev;
 };
 ```
 
-- **make():** apply `move` to `Position` (mailbox + derived bitboards + side +
-  cr + ep + rule50 + hash), record a `MoveDelta` of the previous irreversible
-  state, push a new `StateInfo`.
-- **unmake():** restore **all** logical state from the `MoveDelta` + `move`;
+- **make()** (`pos_make_move`): apply `move` to `Position` (mailbox + derived
+  bitboards + side + cr + ep + rule50 + the exact key), recording the bounded
+  `MoveDelta` edits + the previous scalars in the caller-supplied `StateInfo`.
+  Validates every input before the first write; on failure it leaves both the
+  `Position` and the record byte-for-byte unchanged.
+- **unmake()** (`pos_unmake_move`): restore **all** logical state (revert the
+  edits; restore the scalars; the exact key; the history head) from the record;
   recompute nothing by guessing — every restored field matches a from-scratch
-  recompute.
+  recompute. The record is not modified and may be reused.
 - **En passant:** `Position.ep_sq` retains the recorded target in every setup and
   move path. The FEN loader preserves it, a double pawn push records its passed
   square even without a legal captor, and other moves clear it. Unmake restores
@@ -122,14 +135,33 @@ struct MoveDelta {
   contributes the target file iff at least one EP capture is king-safe. Do not
   erase an uncapturable raw record in make/unmake. This is QwenChess's storage
   convention, independent of Stockfish's internal board representation.
-  **Null moves** clear EP while applied, restore it on undo, and add no fictitious
-  repetition.
-- The core `make_move(...)` function already constructs an encoded Move. T004
-  board mutation uses distinct names such as `pos_make_move` / `pos_unmake_move`.
+  **Null moves** clear the recorded EP while applied and restore it on undo.
+- The core `make_move(...)` function already constructs an encoded Move. Board
+  mutation uses distinct names: `pos_make_move` / `pos_unmake_move` for real
+  moves and **`pos_make_null_move`** for a pass. A null is a distinct entry point
+  because the ordinary `pos_make_move` rejects the move value 0 (the no-move
+  sentinel, from=to=0 with no flags), so a pass can never be spelled accidentally.
+  A null: zero board edits, flip the side, clear the recorded EP, and **preserve
+  both counters** (halfmove + fullmove) for either color (QwenChess counter
+  policy — a synthetic null neither advances nor resets them; a full-width 65535
+  clock simply round-trips). Its key updates exactly (toggle the side; remove the
+  old canonical EP contribution). It is rejected (leaving both outputs unchanged)
+  when the side to move is in check — a pass cannot address a check.
 - Undo comparisons inspect logical fields and derived caches, not struct padding.
   T004 uses hand-built moves; seeded legal sequences are a T005 integration gate.
-- **Repetition history** (a chain of pre-move states) is available independently
-  of the search stack, so pre-root repetitions remain detectable.
+- **Repetition history:** every applied record (a real move or a null) links to
+  its predecessor via `StateInfo.prev`; `Position.history` points at the latest
+  applied record (NULL on a fresh setup). The chain is **caller-owned at stable
+  addresses** and is **NOT capped at `MAX_PLY`** — the pre-root game history and a
+  bounded search undo array may live in separate storage. `Position` holds only a
+  non-owning pointer (it frees nothing); `pos_rebuild` leaves it untouched, a
+  successful FEN/reset setup sets it to NULL (abandoning the chain), and a failed
+  load preserves it. **`pos_repetition_count`** is the production occurrence
+  query: it counts the current key's occurrences in the reachable history plus the
+  current node if real, and a **null node counts 0** and acts as a walk boundary
+  (the walk never crosses a null transition into earlier history). It is an
+  occurrence query only — threefold/fivefold/rule-50 draw adjudication is a search
+  policy, not part of this contract.
 
 ## The NNUE boundary (consumer of Position)
 

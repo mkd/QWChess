@@ -42,11 +42,10 @@ build a minimal tested C17 scaffold. No chess logic.
   key constants + XOR-delta vs a full recompute over 17 fixtures incl. reverse +
   state restore (187). `make check-c17` (9 files) + `make test` + `make test-sanitize`
   pass; `make clean` removes only `build/`.
-  - **Still open in M1:** T004 checkpoint 5 (null move make-unmake) → T005
-    (movegen + perft). T003 is complete; **T004 checkpoints 1 (ordinary-move),
-    2 (en-passant capture), 3 (orthodox castling) and 4 (promotion/underpromotion)
-    are done** and verify explicit make/unmake fixtures; seeded legal sequences land
-    in T005 once movegen exists.
+  - **Still open in M1:** **T005 (movegen + perft)** is the last M1 task — T003 and
+    all of T004 (checkpoints 1–5: ordinary, EP, castling, promotion, null + history)
+    are done and verify explicit make/unmake fixtures; seeded legal sequences land
+    in T005 once movegen exists (which is when perft can run).
 
 ### T003 — Position + FEN + logical-state invariants
 - **Status:** implemented, tested, and **committed** (source-audit corrections
@@ -61,14 +60,18 @@ build a minimal tested C17 scaffold. No chess logic.
   belong to T004. FEN draw counters are bounded by storage, not draw thresholds.
 
 ### T004 — reversible move application (make/unmake) + MoveDelta/StateInfo
-  - **Status:** **checkpoints 1+2+3+4 done** — cp1 (ordinary moves) committed
+  - **Status:** **all five checkpoints done.** cp1 (ordinary moves) committed
     (`00a579c`); cp2 (en-passant capture), cp3 (orthodox castling) and cp4
     (promotion/underpromotion) implemented in `e71c4b7`, their three test suites
-    committed by the cp4 reconcile: `pos_make_move` / `pos_unmake_move` +
-    `StateInfo`/`MoveDelta` now cover quiet / ordinary capture / pawn single+double
-    push / ordinary pawn capture / EP capture (3-edit delta) / orthodox castling
-    (4-edit delta) / promotion + underpromotion (2-edit delta; payload 2..5); only
-    the null move remains reserved and rejected cleanly (checkpoint 5). See STATE.md.
+    committed by the cp4 reconcile; **cp5 (the null move + repetition history)**
+    landed by this task: `pos_make_move` / `pos_unmake_move` + `StateInfo`/
+    `MoveDelta` cover quiet / ordinary capture / pawn single+double push / ordinary
+    pawn capture / EP capture (3-edit delta) / orthodox castling (4-edit delta) /
+    promotion + underpromotion (2-edit delta), and a distinct `pos_make_null_move`
+    (zero edits; flip side; clear EP; preserve both counters; exact key) plus the
+    caller-owned, `MAX_PLY`-uncapped `StateInfo.prev` history chain and the
+    `pos_repetition_count` production query (a null node counts 0 and is a walk
+    boundary). T004 is complete. See STATE.md.
 - **Objective:** `make`/`unmake` restoring **all** logical state + hash exactly;
   chess-level `MoveDelta`/`StateInfo` (no NNUE types); recorded ep retained and only
   its key component canonicalized; null

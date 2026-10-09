@@ -1,45 +1,49 @@
 # QwenChess — State
 
-**Milestone:** M1 (board correctness). **T004 checkpoint 4 (promotion /
-underpromotion make-unmake) complete** and verified. Checkpoints 1–4 are done:
-cp1 (ordinary moves) committed `00a579c`; cp2 (en-passant), cp3 (castling) and
-cp4 (promotion) implementations landed in `e71c4b7`, and their three test suites
-are committed by this reconcile. M1 stays open: **T004 checkpoint 5 (the null
-move)** then T005 (movegen + perft) for the exit.
-**Baseline (last verified commit):** `e71c4b7` (Implement promotions make and
-unmake; parent `00a579c` cp1). The committed Makefile already referenced the three
-make/unmake suites; this reconcile commits them so a clean checkout builds the full
-`make test`. Git identity `mkd`/`claudiomkd@gmail.com`.
+**Milestone:** M1 (board correctness). **T004 checkpoint 5 (the null move +
+repetition history) complete** and verified — this closes T004 (all five
+checkpoints). M1 stays open: **T005 (movegen + perft)** is the last M1 task.
+**Baseline (last verified commit):** `00ce9d3` (T004 cp2-4 reconcile). Git
+identity `mkd`/`claudiomkd@gmail.com`.
 
-## What this reconcile landed
-- `tests/promotion_makeunmake_test.c` (committed): 10 groups / 1305 checks —
-  straight + diagonal + all four types on every file/color; capture-promo onto every
-  enemy piece type (a-/h-file edges, king-capture rejected); a1/h1/a8/h8
-  castling-rights transitions; the rejection suite (geometry, payload, mover, flags,
-  reserved bits, file wrap); the canonical a7a8=Q → a8a7 undo; null stays rejected;
-  a promo clears a recorded (capturable **and** uncapturable) EP target + its key
-  file; nested promotions (capture of the promoted piece; two in a row); a
-  structurally applied king-unsafe "pinned" promo + its mirror; wide-counter
-  boundaries (hm 65535 → 0; black fm 65534 → 65535; black 65535 rejected; white
-  65535 accepted).
-- `tests/ep_makeunmake_test.c` + `tests/castling_makeunmake_test.c` (committed):
-  the cp2 / cp3 suites the Makefile already referenced.
-- Docs reconciled to the implementation: `ARCHITECTURE.md` move layout
-  (`flags:3 + reserved:1`, not `flags:4`), `PLAN.md` T004 status, this file.
+## What this task landed
+- `pos_make_null_move` — a **distinct** null/pass entry point (the ordinary
+  `pos_make_move` still rejects the move value 0, the no-move sentinel). Zero
+  board edits; flip the side; clear the recorded EP; **preserve both counters**
+  (halfmove + fullmove) for either color; exact incremental key (toggle the side,
+  drop the old canonical-EP contribution). Rejected (both outputs unchanged) when
+  the side to move is in check — a pass cannot address a check. `pos_unmake_move`
+  handles the null via the shared zero-edit + prev_* path.
+- **Repetition history:** `StateInfo.prev` links each record (real or null) to its
+  predecessor; `Position.history` points at the latest record (NULL on a fresh
+  setup). Caller-owned, stable addresses, **not capped at MAX_PLY**. `Position`
+  holds only a non-owning pointer; `pos_rebuild` leaves it untouched, a successful
+  FEN/reset setup NULLs it, a failed load preserves it.
+- **`pos_repetition_count`** — the production occurrence query (read-only, no
+  allocation). A fresh setup → 1; a null-produced node → 0; the walk never crosses
+  a null transition. Occurrence only, not draw adjudication.
+- Two new test suites: `tests/null_makeunmake_test.c` (4 groups, 596 checks) and
+  `tests/repetition_test.c` (4 groups, 334 checks) — both wired into `make test`.
+  Note: the task spec asked the second-cycle undo to "return to 1"; the correct
+  value there is **2** (the position after move 6 equals the position after move 2),
+  so the test asserts 2 and undoes all the way to 1 at the root.
+- Docs reconciled to the implementation: `ARCHITECTURE.md` reversible-move contract
+  (the `SquareEdit`/`MoveDelta`/`StateInfo` structs, the null + history, the
+  ownership table), `PLAN.md` T004 status, this file.
 
-## Checks (Debian, GCC 16.2.0 — re-verified today)
-- `make check-c17` → 19 files, no non-C17 constructs.
-- `make test` (release) → all 12 binaries pass, 0 fail (exit 0).
-- `make test-sanitize` → all 12 pass under ASan + UBSan, no errors/leaks (exit 0).
-- `make clean && make release` / `debug` / `sanitize` → all three build the engine
-  clean, no warnings under the full `WARN` set; the release engine self-IDs (`uci`).
+## Checks (Debian, GCC — re-verified today, all three configs)
+- `make check-c17` → **21 files**, no non-C17 constructs.
+- `make test` (release) → all **14** binaries pass, 141 suites, 0 fail (exit 0).
+- `make test-sanitize` → all 14 pass under ASan + UBSan, 0 runtime errors (exit 0).
+- debug config `test-run` → all 14 pass, 0 fail (exit 0).
+- New suites: `null` 596 checks (336/102/123/35), `rep` 334 checks (24/8/28/274).
 
 ## Blockers / open
 - `reference/` SF19 checkout (M3 oracle) not made; the match runner (M5) is not
-  installed. Neither blocks T004/T005.
+  installed. Neither blocks T005.
 
 ## Exactly one next task
-**T004 checkpoint 5 — the null move.** Extend `pos_make_move` / `pos_unmake_move`
-with the null move (move value 0): no board edit; record + restore side, castling,
-EP and the counters, and keep the key exact, while a null move adds **no fictitious
-game repetition**. Then T005 (movegen + perft) closes M1. **Dep: checkpoint 4 (done).**
+**T005 — legal move generation + special cases + perft/differential** (closes M1).
+**Dep: T004 (done).** A perft harness above position+movegen; differential
+legal-move check vs an independent generator; make/unmake stays exact under the
+generator. Seeded legal make/unmake sequences (deferred from T004) land here.

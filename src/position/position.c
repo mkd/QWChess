@@ -236,9 +236,14 @@ static int v_key(const Position *p, const char **why) {
 static Color other(Color c) { return (Color)(1 - (int)c); }
 
 /* Is `victim`'s king attacked by any enemy piece? Uses geometric attacks (a
- * pinned enemy slider still points at the king) over the mailbox's occupancy.
- * No legal move generation is performed. Cold path. */
-static int pos_is_in_check(const Position *pos, Color victim) {
+ * pinned enemy slider still points at the king). The occupancy is derived from
+ * the mailbox so the query is self-consistent for any initialized Position (it
+ * does not trust a possibly-stale occupancy cache), and the king square comes
+ * from the validated cache. No legal move generation is performed. Cold path.
+ * This is the single source of truth for "is this color in check?", used by the
+ * validator (v_no_check_nonmover) and by the null move, which rejects a pass
+ * while the side to move is in check. */
+int pos_is_in_check(const Position *pos, Color victim) {
   Square king = (victim == WHITE) ? pos->wKingSq : pos->bKingSq;
   if (king >= SQ_NB)
     return 0;

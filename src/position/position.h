@@ -6,13 +6,14 @@
  *   derived : byPiece[16], byColor[2], occ, wKingSq, bKingSq, key   (rebuild)
  * Piece codes, square numbering and sentinels are unchanged (see core/types.h).
  *
- * Ownership/lifetime: a Position is a plain, stack- or worker-allocated value;
- * nothing inside the struct points at another Position or a StateInfo. The undo
- * record (StateInfo/MoveDelta) and the reversible make/unmake API live in
- * position/state.h (included at the bottom); the full repetition history stays
- * independent of the position and is deferred. Position/StateInfo contain NO
- * NNUE types, feature indices or evaluator caches. No heap allocation is
- * performed by the functions in this checkpoint.
+ * Ownership/lifetime: a Position is a plain, stack- or worker-allocated value.
+ * The one pointer it holds is the NON-OWNING repetition-history head
+ * (Position.history -> the latest applied StateInfo record); the records the
+ * chain points at are caller-owned and must outlive any Position that references
+ * them. The undo record (StateInfo/MoveDelta) and the reversible make/unmake +
+ * null + repetition-history API live in position/state.h (included at the
+ * bottom). Position/StateInfo contain NO NNUE types, feature indices or
+ * evaluator caches. No heap allocation is performed by the functions here.
  *
  * En passant: `ep_sq` is the RECORDED target -- the square a double push would
  * let an adjacent pawn capture onto -- retained even when no capture is actually
@@ -34,6 +35,12 @@
 #include "core/types.h"
 #include "core/bitboard.h"
 
+/* Forward-declare the undo-record tag (defined in position/state.h, included at
+ * the bottom) so `Position` may hold a NON-OWNING pointer to the latest applied
+ * record without a full include cycle. `struct StateInfo *` here and the
+ * `StateInfo` typedef in state.h name the same type. */
+struct StateInfo;
+
 /* Storage bound, independent of draw adjudication. FEN counters are checked
  * before narrowing to u16; T004 must also prevent arithmetic overflow. A draw
  * threshold does not make a position structurally invalid. */
@@ -53,6 +60,15 @@ typedef struct Position {
   u64           occ;             /* byColor[WHITE] | byColor[BLACK] */
   Square        wKingSq, bKingSq;  /* king squares, or NO_SQUARE */
   u64           key;             /* zobrist position key (canonical ep) */
+  /* -- repetition history (T004 cp5). A NON-OWNING pointer to the latest
+   * applied undo record (real move or null); NULL on a fresh setup (FEN /
+   * start position / reset). The Position does not free or otherwise manage the
+   * records the chain points at -- the caller keeps them alive at stable
+   * addresses -- so a shallow copy of a Position carries the same (borrowed)
+   * pointer and must only be read while those records live. pos_rebuild leaves
+   * it untouched; a successful FEN/reset setup sets it to NULL (abandoning the
+   * prior chain) and a failed load preserves it. */
+  struct StateInfo *history;
 } Position;
 
 /* Cold setup / rebuild. */
@@ -106,6 +122,15 @@ int pos_ep_is_valid_meta(const Position *pos);
  * *why to a short reason (may be NULL) otherwise. Never mutates *pos. This is a
  * representation-consistency check, NOT a move-legality or reachability proof. */
 int pos_validate(const Position *pos, const char **why);
+
+/* True iff `victim`'s king is attacked by any enemy piece, by geometric attack
+ * (a pinned enemy slider still points at the king) over the board's combined
+ * occupancy. Depends only on the mailbox + the (validated) occupancy / king
+ * square; no legal move generation is performed. Returns 0 if the victim has no
+ * king. This is the single source of truth for "is this color in check?" used
+ * by the validator and by the null move (which rejects a pass while in check).
+ * Cold path. */
+int pos_is_in_check(const Position *pos, Color victim);
 
 /* The undo record (StateInfo/MoveDelta) and the reversible make/unmake API.
  * Included last so the Position struct above is complete when state.h sees it;
