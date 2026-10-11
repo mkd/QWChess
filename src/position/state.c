@@ -132,7 +132,14 @@ static u8 cr_after_move(u8 cr, Square from, Square to, Piece mover, Piece dest) 
  * A double pawn push records the square it passed (so a later EP capture is
  * detectable and the key can canonicalize it); every other move clears it. The
  * record is retained even when no capture is actually legal; only the key
- * canonicalizes it (pos_canon_ep_file). */
+ * canonicalizes it (pos_canon_ep_file).
+ *
+ * is_double_push is GEOMETRY ONLY: same file, from the pawn starting rank, two
+ * ranks forward. It does NOT check the mover's piece type, so a rook or queen on
+ * that rank makes the same two-rank-forward displacement qualify -- the apply
+ * path (pos_make_move) must AND it with is_pawn_mv, or a non-pawn move would
+ * record a fictitious EP target (a regression caught in the makeunmake
+ * ep_nonpawn suite). */
 static int is_double_push(Color side, Square from, Square to) {
   if ((from & 7) != (to & 7))
     return 0;                                  /* different file: not a push */
@@ -484,9 +491,12 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
    * NO_PIECE as the `dest` for a castle so the friendly rook at the encoded
    * destination is never mistaken for a captured enemy rook. */
   pos->cr = cr_after_move(pos->cr, from, to, mover, is_castle_mv ? NO_PIECE : dest);
-  /* A double push records the passed square; every other move (incl. castling,
-   * never a push) clears the recorded en-passant target. */
-  pos->ep_sq = is_double_push(side, from, to) ? passed_square(side, from) : (Square)NO_SQUARE;
+  /* A pawn's double push records the passed square; every other move -- incl.
+   * castling (never a push) and, crucially, a non-pawn slider that happens to
+   * travel two ranks forward on its own file (is_double_push is geometry-only,
+   * so it matches a rook/queen from the pawn starting rank too) -- clears the
+   * recorded en-passant target. Requiring is_pawn_mv keeps the EP record honest. */
+  pos->ep_sq = (is_pawn_mv && is_double_push(side, from, to)) ? passed_square(side, from) : (Square)NO_SQUARE;
   /* A castle is a quiet move: is_pawn_mv and is_cap are both 0, so the clock
    * increments (overflow validated in castle_supported); the fullmove number
    * increments for black only. */
@@ -607,13 +617,18 @@ int pos_make_null_move(Position *pos, StateInfo *state) {
 int pos_repetition_count(const Position *pos) {
   if (pos == NULL)
     return 0;
-  u64 k = pos->key;
-  int count = 0;
   StateInfo *h = pos->history;   /* the transition that produced the current position, or NULL (a fresh setup) */
-  /* The current position is a played occurrence unless it was produced by a
-   * null. A fresh setup (h == NULL) is a real node, so it counts exactly 1. */
-  if (h == NULL || !is_null_move(h->delta.move))
-    count = 1;
+  /* A current node produced by a null is never a played occurrence. Return 0
+   * IMMEDIATELY and do not walk the ancestors: a null only flips the side, so
+   * its key can still equal an earlier REAL position (a cycle that returns the
+   * board to a seen arrangement and then passes), and counting that earlier node
+   * would cross the very null boundary the rule exists to stop at. */
+  if (h != NULL && is_null_move(h->delta.move))
+    return 0;
+  u64 k = pos->key;
+  /* Here h is NULL (a fresh setup) or a real move: the current node is a played
+   * occurrence, so it counts exactly 1. */
+  int count = 1;
   /* Walk the parents, newest first. `h` is the transition that acted on the
    * position whose key is `h->prev_key`; that position was produced by
    * `h->prev`. Inspect the producer BEFORE counting the saved key. */

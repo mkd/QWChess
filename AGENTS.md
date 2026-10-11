@@ -21,6 +21,9 @@ Separate `build/<config>/` trees — never mix objects across configs.
 ## Hard rules
 - All shipped logic is C17. No C++, no C++ runtime, no external eval process,
   no LLM/network at play time. Upstream SF19 C++ is a *test oracle/opponent* only.
+  C17 is the **current** phase; a deliberate C++20 migration is a documented, later,
+  gated roadmap item (PLAN/ARCHITECTURE "Deferred") — it does not relax this
+  constraint in the present milestones.
 - **One board representation = `Position`** (authoritative chess state). NNUE is a
   *consumer* of Position and owns its feature indices + pending updates; it never
   owns a board. **Position/StateInfo/MoveDelta must contain no NNUE-specific types.**

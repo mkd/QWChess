@@ -1,18 +1,21 @@
 /* QwenChess: reversible move application (make/unmake) — the undo record.
  *
- * This is T004 checkpoint 1+2+3+4: the StateInfo/MoveDelta undo architecture
+ * This is T004 (all five checkpoints): the StateInfo/MoveDelta undo architecture
  * and the reversible application of ORDINARY moves (checkpoint 1: quiet moves,
  * ordinary captures, pawn single/double pushes, ordinary pawn captures),
  * EN-PASSANT captures (checkpoint 2; the 3-edit application), orthodox
- * CASTLING (checkpoint 3; the 4-edit application) and PROMOTIONS/
- * underpromotions (checkpoint 4; the 2-edit application) in state.c.
+ * CASTLING (checkpoint 3; the 4-edit application), PROMOTIONS/underpromotions
+ * (checkpoint 4; the 2-edit application), and the NULL move (checkpoint 5; the
+ * zero-edit application) + the repetition history in state.c.
  * EP, castling and promotion application is STRUCTURAL, not legal: each
  * requires the correct pieces, geometry (and, for castling, the right) but none
  * rejects own-king safety -- a pinned captor's EP, a check-exposing castle
  * (FIDE 3.8.2) or a pinned promotion is still applied and reversed here; that
- * king-safety check belongs to movegen in T005. Null moves are the final T004
- * checkpoint; they are still REJECTED cleanly here (reserved in the delta's
- * capacity).
+ * king-safety check belongs to movegen in T005. The null move is applied by the
+ * dedicated pos_make_null_move() below; the ORDINARY pos_make_move()
+ * intentionally rejects the move value 0 (the no-move sentinel: from=to=0, no
+ * flags) so a pass can never be spelled through the ordinary path -- the two
+ * entry points are distinct on purpose.
  *
  * Chess-level only: no NNUE/SFNNv16 types, feature indices or evaluator
  * pointers (see docs/ARCHITECTURE.md, "The reversible-move contract"). A future
@@ -160,11 +163,14 @@ int pos_make_null_move(struct Position *pos, StateInfo *state);
  * canonical position key (Position.key) appears in the eligible history, plus
  * the current position itself if it is a real (non-null) node. A fresh setup
  * (a FEN/start position, history NULL) therefore returns 1. A position produced
- * directly by a null returns 0: a null node is never a played occurrence, and the
- * walk never crosses a null transition into earlier history (real descendants
- * after the latest null still match other real descendants within that segment).
- * Each record stores its parent's key, so before counting a record's saved key
- * the transition that PRODUCED that parent is inspected; if that transition is a
+ * directly by a null returns 0 IMMEDIATELY (no ancestor walk): a null node is
+ * never a played occurrence, and although a null only flips the side -- so its
+ * key can still EQUAL an earlier real position -- those earlier nodes must not be
+ * counted across the null. For a REAL node the walk does run, but it never
+ * crosses a null transition into earlier history (real descendants after the
+ * latest null still match other real descendants within that segment). Each
+ * record stores its parent's key, so before counting a record's saved key the
+ * transition that PRODUCED that parent is inspected; if that transition is a
  * null, the parent is a null node (not counted) and the walk stops. This is a
  * read-only O(history) walk; it allocates nothing and touches no mutable board.
  * Undo restores the previously visible count because unmake restores

@@ -210,3 +210,21 @@ Magic/PEXT attacks (start portable slider generation), SIMD kernels, LTO/PGO,
 cache layout, SMP scaling, Chess960, pondering, MultiPV, Syzygy, NNUE training,
 GPU inference, distributed search. Search strength heuristics (SEE, LMR, NMP,
 futility, …) land one at a time after a stable baseline.
+
+Two further deliberate, later-only roadmap items (not scheduled in the current
+milestones; see PLAN.md "Deliberately deferred"):
+
+- **C++20 migration.** All *shipped* engine logic is C17 today (see AGENTS.md); no
+  C++ compiler or runtime is a dependency in the present milestones. When the C++20
+  transition is scheduled it must gate on C++20 + the platform standard library,
+  document exactly why each C++ feature is needed and the C17 cost it removes, keep
+  the full correctness/NNUE/search regression suite green, retain the C17 reference
+  build (a parallel `make cxx` config) until C++ parity is proven on every gate,
+  record the new build + sanitizer coverage, and keep UCI, determinism and the
+  single-worker mode byte-identical.
+- **Targeted platform/performance tuning.** Only after a measured bottleneck on the
+  actual execution CPU: hot-path cache alignment/branch layout, vector width and
+  instruction-set selection, LTO/PGO, and a benchmark-driven choice between the
+  standard C library and a purpose-built allocator. No speculative optimization or
+  unmeasured micro-tuning. (NNUE SIMD kernels are the dedicated M6 scope; this item
+  covers the general platform layer.)

@@ -235,6 +235,62 @@ static int t_ep_doublepush(void) {
   return qwc_end();
 }
 
+/* ---- a NON-pawn move must never record an en-passant target ---------------
+ * Defect-1 regression. is_double_push() is geometry-only (same file, from the
+ * pawn starting rank, two ranks forward), so a rook or queen on its pawn
+ * starting rank moving two ranks forward matched it and pos_make_move() recorded
+ * a fictitious EP target (pos_validate then rejected the position, even though
+ * the key was correct because the malformed record contributes no canonical
+ * file). The fix requires the mover to be a pawn; every other real move clears
+ * the EP. Cases: rook and queen, both colors, quiet and capture, on the exact
+ * two-rank-forward geometry. t_ep_doublepush above keeps the real double-pawn
+ * push as the positive control. */
+static int t_ep_nonpawn(void) {
+  qwc_begin("makeunmake.ep_nonpawn");
+  StateInfo st;
+  const char *why = NULL;
+  struct { const char *fen; int pf, pr, tf, tr; int pc; int hm, fm; int side; const char *after; } C[] = {
+    /* the exact supplied reproducer: a white rook on d2, two ranks forward */
+    { "7k/8/8/8/8/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, W_ROOK,  1, 1, BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 1 1" },
+    /* a quiet queen, same white geometry */
+    { "7k/8/8/8/8/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, W_QUEEN, 1, 1, BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 1 1" },
+    /* a quiet rook, the rank-reflected black geometry (d7 -> d5) */
+    { "7K/3r4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_ROOK,  1, 2, WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 1 2" },
+    /* a quiet queen, black */
+    { "7K/3q4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_QUEEN, 1, 2, WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 1 2" },
+    /* a rook capture two ranks forward, white (Rxd4) */
+    { "7k/8/8/8/3r4/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, W_ROOK,  0, 1, BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 0 1" },
+    /* a rook capture, black (Rxd5) */
+    { "7K/3r4/8/3R4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_ROOK,  0, 2, WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 0 2" },
+    /* a queen capture, white (Qxd4) */
+    { "7k/8/8/8/3q4/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, W_QUEEN, 0, 1, BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 0 1" },
+    /* a queen capture, black (Qxd5) */
+    { "7K/3q4/8/3Q4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_QUEEN, 0, 2, WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 0 2" },
+  };
+  for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+    Position pos;
+    QWC_TRUE(fen_load(&pos, C[i].fen, &why) == 1, "load a legal fixture");
+    Position base = pos;
+    memset(&st, 0, sizeof st);
+    check_accept(&pos, &st, mv(C[i].pf, C[i].pr, C[i].tf, C[i].tr), "the two-rank non-pawn move is accepted");
+    /* the fix: a non-pawn move records NO en-passant target (it was d3/d6 before) */
+    QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "no EP is recorded for a non-pawn move");
+    QWC_EQ_I((int)pos.mailbox[sq_of(C[i].tf, C[i].tr)], C[i].pc, "the piece lands on the destination");
+    QWC_EQ_I((int)pos.mailbox[sq_of(C[i].pf, C[i].pr)], (int)NO_PIECE, "the origin is now empty");
+    QWC_EQ_I((int)pos.side, C[i].side, "the side flipped");
+    QWC_EQ_I((int)pos.halfmove, C[i].hm, "halfmove as expected");
+    QWC_EQ_I((int)pos.fullmove, C[i].fm, "fullmove as expected");
+    QWC_TRUE(pos_validate(&pos, &why), "the result validates (no malformed EP record)");
+    QWC_TRUE(derived_match_rebuild(&pos, &why), "derived caches + key match a rebuild");
+    char fbuf[FEN_BUF_SIZE];
+    QWC_TRUE(fen_emit(&pos, fbuf, (int)sizeof fbuf) == 1, "emit the final fen");
+    QWC_TRUE(strcmp(fbuf, C[i].after) == 0, "the final fen is exact (EP field is '-')");
+    pos_unmake_move(&pos, &st);
+    QWC_TRUE(pos_equal(&pos, &base), "unmake restores the logical state exactly");
+  }
+  return qwc_end();
+}
+
 /* ---- rule-50 / fullmove counter bounds across make ------------------------ */
 static int t_counters(void) {
   qwc_begin("makeunmake.counters");
@@ -440,6 +496,7 @@ int main(void) {
   fail |= t_sequence();
   fail |= t_a1a8();
   fail |= t_ep_doublepush();
+  fail |= t_ep_nonpawn();
   fail |= t_counters();
   fail |= t_malformed();
   return fail ? 1 : 0;

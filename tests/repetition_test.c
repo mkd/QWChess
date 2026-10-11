@@ -11,16 +11,18 @@
  *  3. rep.null_boundary -- a single null + a repeating two-move sequence + a
  *     second sequence + a subsequent null + a cycle; verifies a null is a
  *     boundary (a matching position after it does NOT count the pre-null node).
- *  4. rep.storage -- a 260-ply (> MAX_PLY) chain in caller-owned storage, a
- *     FEN reload that resets it, a FAILED load that preserves it, a rebuild that
+ *  4. rep.storage -- a 260-ply (> MAX_PLY) chain in caller-owned storage; a
+ *     distinct search array attached to the still-live head (66 -> 67, back to 66);
+ *     a FEN reload that resets it, a FAILED load that preserves it, a rebuild that
  *     preserves it, and two coexisting arrays.
+ *  5. rep.null_match_boundary -- a null whose post-null key EQUALS an earlier real
+ *     position (the board cycle restores the initial placement and the null flips
+ *     the side back) counts 0, never 1 (the defect-2 regression; + mirror).
  *
- * NOTE on the spec: the task asked to "verify the count returns to 1" after the
- * second cycle's last two moves. For this exact sequence that value is 2, not 1:
- * undoing the two closing moves lands on the position after move 6, whose key
- * equals the position after move 2 (both are startpos + Nf3 + Nf6, white to
- * move), so the reachable history holds it twice. We assert the correct value
- * (2) and additionally undo all the way back to 1 at the root.
+ * On the intermediate undo in basic_cycle: undoing the two closing moves lands on
+ * the position after move 6, whose key equals the position after move 2 (both are
+ * startpos + Nf3 + Nf6, white to move), so the reachable history holds it twice and
+ * the correct count is 2; the test then undoes all the way back to 1 at the root.
  *
  * All checks are always active; the harness reports aggregates.
  */
@@ -81,8 +83,8 @@ static int t_basic_cycle(void) {
 
   /* undo the two closing moves -> the position after move 6. Its key equals the
    * position after move 2 (startpos + Nf3 + Nf6, white to move), which is still
-   * in the reachable history, so the correct count is 2 (the task's "1" would
-   * only hold if move 2's twin had also been undone). */
+   * in the reachable history, so the correct count is 2. (It would be 1 only if
+   * move 2's twin had also been undone, which it has not here.) */
   pos_unmake_move(&pos, &hist[7]);
   pos_unmake_move(&pos, &hist[6]);
   QWC_EQ_I(pos_repetition_count(&pos), 2, "undo the two closing moves -> 2");
@@ -171,10 +173,72 @@ static int t_null_boundary(void) {
   return qwc_end();
 }
 
+/* Defect-2 regression: a null whose post-null key EQUALS an earlier real position
+ * must count 0, not 1. The five real moves restore the exact initial placement
+ * with the side flipped; the null flips the side back, so the current key equals
+ * the initial key. The production query must return 0 for the null node and must
+ * NOT walk the ancestors (which would count the earlier real occurrence across the
+ * very null boundary the rule exists to stop at). Calls the real production query. */
+static void run_null_match(const char *fen, const int mv[5][4],
+                           const char *exp_final_fen, const char *name) {
+  Position pos;
+  StateInfo hist[5]; memset(hist, 0, sizeof hist);
+  const char *why = NULL;
+  QWC_TRUE(fen_load(&pos, fen, &why) == 1, name);
+  u64 initial_key = pos.key;
+  QWC_TRUE(pos.history == NULL, name);
+  QWC_EQ_I(pos_repetition_count(&pos), 1, "fresh setup counts 1");
+  for (int i = 0; i < 5; i++)
+    do_move(&pos, &hist[i], mv[i][0], mv[i][1], mv[i][2], mv[i][3], 0, 0, "a real transition");
+  /* the five moves restore the initial placement with the side flipped */
+  QWC_TRUE(pos.key != initial_key, "after five moves the side flipped (key != initial)");
+  StateInfo nrec; memset(&nrec, 0, sizeof nrec);
+  QWC_TRUE(pos_make_null_move(&pos, &nrec) == 1, "the null is accepted");
+  QWC_EQ_U64(pos.key, initial_key, "the null restores the initial key (board + side)");
+  QWC_EQ_I(pos_repetition_count(&pos), 0, "a null matching an earlier real position counts 0");
+  char fbuf[FEN_BUF_SIZE];
+  QWC_TRUE(fen_emit(&pos, fbuf, (int)sizeof fbuf) == 1, "emit the final fen");
+  QWC_TRUE(strcmp(fbuf, exp_final_fen) == 0, "the final fen is exact");
+  /* full LIFO undo restores the prior head, counters, board, key and count */
+  pos_unmake_move(&pos, &nrec);
+  for (int i = 4; i >= 0; i--)
+    pos_unmake_move(&pos, &hist[i]);
+  QWC_TRUE(pos.history == NULL, "fully unwound: history NULL");
+  QWC_EQ_U64(pos.key, initial_key, "undo restores the initial key");
+  QWC_EQ_I((int)pos.halfmove, 0, "undo restores the halfmove counter");
+  QWC_EQ_I((int)pos.fullmove, 1, "undo restores the fullmove counter");
+  QWC_EQ_I(pos_repetition_count(&pos), 1, "undo restores the occurrence count to 1");
+}
+
+static int t_null_match_boundary(void) {
+  qwc_begin("rep.null_match_boundary");
+  /* the exact supplied sequence: white king + black rook cycle, then a null */
+  static const int orig[5][4] = {
+    { 0, 0, 0, 1 },   /* a1a2 */
+    { 7, 7, 6, 7 },   /* h8g8 */
+    { 0, 1, 1, 0 },   /* a2b1 */
+    { 6, 7, 7, 7 },   /* g8h8 */
+    { 1, 0, 0, 0 },   /* b1a1 */
+  };
+  run_null_match("5r1k/8/8/8/8/8/8/K1R5 w - - 0 1", orig,
+                 "5r1k/8/8/8/8/8/8/K1R5 w - - 5 3", "exact reproducer (white to move)");
+  /* its rank-reflected / color-swapped counterpart */
+  static const int refl[5][4] = {
+    { 0, 7, 0, 6 },   /* a8a7 */
+    { 7, 0, 6, 0 },   /* h1g1 */
+    { 0, 6, 1, 7 },   /* a7b8 */
+    { 6, 0, 7, 0 },   /* g1h1 */
+    { 1, 7, 0, 7 },   /* b8a8 */
+  };
+  run_null_match("k1r5/8/8/8/8/8/8/5R1K b - - 0 1", refl,
+                 "k1r5/8/8/8/8/8/8/5R1K b - - 5 4", "rank-reflect / color-swap mirror");
+  return qwc_end();
+}
+
 /* A deep (260-ply, well above MAX_PLY) chain in caller-owned storage, then the
- * setup/reset rules: a successful FEN load starts a fresh history, a FAILED load
- * preserves it, pos_rebuild preserves it, and a separate bounded array can
- * coexist. */
+ * setup/reset rules: a still-live head with a distinct search array attached, a
+ * successful FEN load that resets it, a FAILED load that preserves it, pos_rebuild
+ * preserving it, and two coexisting arrays. */
 #define CYCLES 65
 #define PLIES (CYCLES * 4)   /* 260, > MAX_PLY (256) */
 static int t_storage(void) {
@@ -198,6 +262,29 @@ static int t_storage(void) {
   }
   /* after 65 closed cycles the root position occurred 66 times (65 + the start) */
   QWC_EQ_I(pos_repetition_count(&pos), CYCLES + 1, "deep history: 66 occurrences");
+
+  /* Attach a separate (search-style) array to the STILL-LIVE pre-root chain: one
+   * knight cycle on a distinct four-record array links its first record to the
+   * retained 260-ply head, so the root position now occurs 67 times. Undoing the
+   * four records returns the original head and count 66. (This verifies storage
+   * and history linkage; it does not claim a game continues after automatic draw
+   * adjudication -- that is a search policy, not a position/storage concern.) */
+  {
+    StateInfo *head260 = pos.history;   /* the 260-ply head (count 66) */
+    QWC_TRUE(pos.history == &hist[PLIES - 1], "the head is the last deep record");
+    StateInfo search[4]; memset(search, 0, sizeof search);
+    for (int i = 0; i < 4; i++)
+      do_move(&pos, &search[i], cyc[i][0], cyc[i][1], cyc[i][2], cyc[i][3], 0, 0, "an attached search move");
+    QWC_TRUE(pos.history == &search[3], "the attached head is the new last record");
+    QWC_TRUE(search[0].prev == head260, "the first new record links to the retained 260-ply head");
+    QWC_TRUE(head260 == &hist[PLIES - 1], "the retained head is still the deep record");
+    QWC_EQ_I(pos_repetition_count(&pos), CYCLES + 2, "after one attached cycle: 67 occurrences");
+    for (int i = 3; i >= 0; i--)
+      pos_unmake_move(&pos, &search[i]);
+    QWC_TRUE(pos.history == head260, "undo restores the original 260-ply head");
+    QWC_TRUE(pos.history == &hist[PLIES - 1], "the restored head is the deep record again");
+    QWC_EQ_I(pos_repetition_count(&pos), CYCLES + 1, "undo restores 66 occurrences");
+  }
 
   /* pos_rebuild must preserve the history pointer (it only touches the caches) */
   StateInfo *head_before = pos.history;
@@ -230,6 +317,7 @@ int main(void) {
   fail |= t_basic_cycle();
   fail |= t_consecutive_nulls();
   fail |= t_null_boundary();
+  fail |= t_null_match_boundary();
   fail |= t_storage();
   return fail ? 1 : 0;
 }

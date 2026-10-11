@@ -153,6 +153,24 @@ path) → magic/PEXT attacks (from measurements on this CPU) → LTO/PGO, cache 
 C11-atomics TT + worker pool (keep a deterministic single-worker debug mode) →
 Chess960 → pondering → MultiPV → Syzygy. Each with explicit contracts.
 
+## Deliberately deferred (roadmap — scheduled only on later, measured need)
+- **C++20 migration (a).** A deliberate, later transition of the *shipped* engine
+  to C++20, to unlock higher-performance implementations where C is too limiting.
+  Current policy stays C17; no C++ compiler/runtime is a dependency of the engine
+  in the present milestones. When scheduled it must: (1) gate on C++20 + the
+  platform-standard library, documenting exactly why each C++ feature is required
+  and the C17 cost it removes; (2) keep the existing correctness/NNUE/search
+  regressions green; (3) preserve the C17 reference implementation alongside (a
+  dual-build, e.g. a `make cxx` config) until C++ parity is proven on every gate;
+  (4) record the new build + sanitizer coverage; (5) keep UCI, determinism and the
+  single-worker mode identical.
+- **Targeted platform/performance tuning (b).** Only after a measured bottleneck on
+  the actual execution CPU: hot-path cache alignment/branch layout, vector width and
+  instruction sets, LTO/PGO, and a benchmark-driven choice between a standard C
+  library and a purpose-built allocator. No speculative optimization and no
+  unmeasured micro-tuning. (NNUE SIMD kernels are the M6/T-scope items; this covers
+  the general platform layer.)
+
 ---
 
 ## Ordered backlog (IDs reserved)
