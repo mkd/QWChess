@@ -87,9 +87,11 @@ NULL_TEST_OBJ       := $(OBJ)/tests/null_makeunmake_test.o $(OBJ)/position/state
 NULL_TEST_BIN       := $(BIN)/null_makeunmake_test
 REPETITION_TEST_OBJ := $(OBJ)/tests/repetition_test.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
 REPETITION_TEST_BIN := $(BIN)/repetition_test
-TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN)
+MOVEGEN_TEST_OBJ    := $(OBJ)/movegen/movegen.o $(OBJ)/tests/movegen_pseudo_test.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
+MOVEGEN_TEST_BIN    := $(BIN)/movegen_pseudo_test
+TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN) $(MOVEGEN_TEST_BIN)
 
-DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d)
+DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d)
 
 .SUFFIXES:
 .PHONY: all release debug sanitize test test-sanitize check-c17 net test-net clean help
@@ -166,6 +168,9 @@ $(NULL_TEST_BIN): $(NULL_TEST_OBJ) | $(BIN)
 
 $(REPETITION_TEST_BIN): $(REPETITION_TEST_OBJ) | $(BIN)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(REPETITION_TEST_OBJ)
+
+$(MOVEGEN_TEST_BIN): $(MOVEGEN_TEST_OBJ) | $(BIN)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(MOVEGEN_TEST_OBJ)
 
 test:
 	$(MAKE) CONFIG=release test-run

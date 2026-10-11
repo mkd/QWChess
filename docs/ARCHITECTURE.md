@@ -22,7 +22,13 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 - **position** — the one authoritative board: `Position`, FEN, legal state,
   make/unmake, repetition history, `StateInfo`/`MoveDelta`. Depends on core.
 - **movegen** — legal/pseudo moves, captures, evasions, SEE, staged ordering,
-  histories. Depends on core + position.
+  histories. Depends on core + position. **Stateless**: reads `Position`, writes
+  into a caller buffer; it owns no mutable state and is read-only over `Position`.
+  **Current (T005 cp1):** a single allocation-free entry point
+  `movegen_pseudo_noncastling(const Position*, Move*, size_t cap, size_t *count)`
+  emitting every non-castling pseudo-legal candidate (geometric moves, all four
+  promotions, structural en passant) with **no** own-king-safety filter and no
+  castling; king safety + castling + SEE + evasions land in cp2/cp3.
 - **nnue** — exact loader, feature extraction (a *consumer* of Position), scalar
   reference, incremental accumulators, optimized kernels, the eval wrapper.
   Depends on core + position. **Never owned by Position; never owns a board.**
@@ -32,8 +38,9 @@ platform  ←  core  ←  position  ←  movegen  ─┐
   cancellation, serialized output, `main`. Depends on the rest.
 
 Planned-but-not-yet-created modules (documented here; do not scaffold dozens of
-empty files): `position/` internals beyond the scaffold, `movegen/`, the `nnue/`
-sub-files, `search/`, and the responsive-UCI pieces of `engine/`.
+empty files): `position/` internals beyond the scaffold, the `nnue/` sub-files,
+`search/`, and the responsive-UCI pieces of `engine/`. (`movegen/` now exists:
+T005 cp1's `movegen.{h,c}` non-castling pseudo-legal generator.)
 
 ## Ownership & lifetimes (CORRECTED)
 

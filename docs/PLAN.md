@@ -95,6 +95,32 @@ build a minimal tested C17 scaffold. No chess logic.
   == trusted counts (fixture provenance recorded); differential movegen matches;
   make/unmake stays exact under the generator.
 
+Checkpoints (each a separate compilable, testable, committable unit):
+- **cp1 — non-castling pseudo-legal generation. DONE (this commit).** A frozen
+  `movegen_pseudo_noncastling` API in a new `src/movegen/` module (depends on
+  core+position only). Emits every non-castling pseudo-legal candidate — geometric
+  moves/captures, all four promotions + capture-promotions, and structural en
+  passant (recorded target + enemy pawn + empty landing + adjacent captor; no king
+  safety) — via the existing bitboards/attack tables, no heap, no Position copy,
+  no make/unmake, no rebuild. Tests: 14 independent candidate sets + rank/reflected
+  mirrors, exact startpos (20), deliberate king-safety boundary cases, blocked-first
+  pawn step, capacity/overflow + canaries, determinism + live history, counter
+  independence, and per-candidate make/unmake round-trips. **cp1 is pseudo-legal,
+  not legal** (kings may move to attacked squares; a pinned captor's EP stands).
+- **cp2 — own-king safety (legal gen).** (next) filter candidates that leave the
+  own king attacked; the check state restricts to king moves + check-captures;
+  quiet moves are excluded in check; SEE-based pruning; keep every capture/
+  promotion-escape/EP-escape; evasions. Exposes the `mg.boundary` cases as legal.
+- **cp3 — castling.** independent legal/structural checks (rights, vacant
+  in-between, not in check, not passing over attack; kingside rook on f1/h1,
+  queenside b1/d1); emits MV_CASTLE with the king destination; no per-candidate
+  make/unmake.
+- **cp4 — perft harness + differential (M1 exit).** `perft` **above** position+
+  movegen (the board core does not depend on movegen); ≤5 on startpos
+  (4,865,609) + ≥3 special-move FENs == trusted counts (fixture provenance
+  recorded); a differential legal-move check vs an independent trusted generator;
+  make/unmake stays exact under the generator.
+
 ---
 
 ## M2 — minimal UCI + search (uses the labelled temp Material eval; decoupled from NNUE)
