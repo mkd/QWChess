@@ -188,13 +188,16 @@ struct StateInfo {
   refresh caches and incremental dirties come only **after** scalar parity with the
   oracle. Do not build the incremental machinery before reference parity.
 
-## Invariants & C-safety
+## Invariants & C++20 safety
 
 - `Position` bitboards/occupancy must equal a from-scratch recompute after every
   make/unmake (checked in tests).
-- C11/C17 memory model: **racy non-atomic access and `volatile` are NOT
-  synchronization.** The TT and any later worker sharing use C11 atomics with a
-  defined memory order; keep a **deterministic single-worker** mode for debugging.
+- C++20 memory model: **racy non-atomic access and `volatile` are NOT
+  synchronization.** The TT and any later worker sharing use C++ atomics
+  (`std::atomic`) with a defined memory order; keep a **deterministic single-worker**
+  mode for debugging. The shipped logic is C++20 and may use the standard library at
+  the implementation level, but **no exceptions, no RTTI**, and no reliance on
+  implicit narrowing/UB (see AGENTS.md C++20 conventions).
 - No heap allocation on the search/eval hot path; preallocate per worker. Cold
   protocol/diagnostics code stays off the hot path.
 - NNUE integer pipeline follows SF19 exactly (types/order/clipping). Handle signed
@@ -218,17 +221,17 @@ cache layout, SMP scaling, Chess960, pondering, MultiPV, Syzygy, NNUE training,
 GPU inference, distributed search. Search strength heuristics (SEE, LMR, NMP,
 futility, …) land one at a time after a stable baseline.
 
-Two further deliberate, later-only roadmap items (not scheduled in the current
-milestones; see PLAN.md "Deliberately deferred"):
+One former later-only item is now **active** (the C++20 migration); the other remains
+deferred until measured need. See PLAN.md for the full CPP20 workstream.
 
-- **C++20 migration.** All *shipped* engine logic is C17 today (see AGENTS.md); no
-  C++ compiler or runtime is a dependency in the present milestones. When the C++20
-  transition is scheduled it must gate on C++20 + the platform standard library,
-  document exactly why each C++ feature is needed and the C17 cost it removes, keep
-  the full correctness/NNUE/search regression suite green, retain the C17 reference
-  build (a parallel `make cxx` config) until C++ parity is proven on every gate,
-  record the new build + sanitizer coverage, and keep UCI, determinism and the
-  single-worker mode byte-identical.
+- **C++20 migration — now active.** All *shipped* engine logic is C++20 (see
+  AGENTS.md); the C++ standard library is permitted at the implementation level.
+  CPP20-1 (language migration) is done and CPP20-2…7 are queued. Continuing rules:
+  gate on C++20 + the platform standard library, keep the full correctness/NNUE/search
+  regression suite green, record the new build + sanitizer coverage, keep UCI,
+  determinism and the single-worker mode byte-identical, and keep `Position`/
+  `StateInfo`/`MoveDelta` plain aggregates with no NNUE types. Note: C++20 *source*
+  portability does not by itself establish runtime compatibility on every CPU/OS.
 - **Targeted platform/performance tuning.** Only after a measured bottleneck on the
   actual execution CPU: hot-path cache alignment/branch layout, vector width and
   instruction-set selection, LTO/PGO, and a benchmark-driven choice between the

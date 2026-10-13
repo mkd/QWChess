@@ -1,6 +1,6 @@
 # QwenChess — agent rules (read this first)
 
-C17 UCI chess engine. New codebase; reuses Stockfish 19 (pinned commit, see
+C++20 UCI chess engine. New codebase; reuses Stockfish 19 (pinned commit, see
 `PROVENANCE.md`) algorithms/NNUE with attribution. GPL-3.0-or-later.
 
 ## On session start, read ONLY:
@@ -10,23 +10,29 @@ C17 UCI chess engine. New codebase; reuses Stockfish 19 (pinned commit, see
 4. Only the contract/source files that task names.
 Do **not** reload the whole repo or all upstream NNUE source; read on demand.
 
-## Build / test (Debian; GCC default, `CC=clang` optional; no CMake)
+## Build / test (Debian; g++ default, `CXX=clang++` optional; no CMake)
 ```
 make | make debug | make sanitize
 make test | make test-sanitize
+make check-cpp20     # strict -std=c++20 -pedantic-errors gate over all sources
 make net | make test-net        # net fetch/verify (offline build never needs this)
 ```
-Separate `build/<config>/` trees — never mix objects across configs.
+Separate `build/cpp20/<config>/` trees — never mix objects across configs.
 
 ## Hard rules
-- All shipped logic is C17. No C++, no C++ runtime, no external eval process,
-  no LLM/network at play time. Upstream SF19 C++ is a *test oracle/opponent* only.
-  C17 is the **current** phase; a deliberate C++20 migration is a documented, later,
-  gated roadmap item (PLAN/ARCHITECTURE "Deferred") — it does not relax this
-  constraint in the present milestones.
+- All shipped logic is **C++20**. The C++ standard library is permitted at the
+  implementation level (fixed-width types, `<bit>`, `<cstring>`, `<chrono>`, …).
+  Prohibited at play time: LLM calls, remote services, and any external evaluator
+  process. Upstream SF19 C++ remains a *test oracle/opponent* only. C++ does **not**
+  relax the determinism, ownership, memory-layout, score, or synchronization
+  contracts. Prohibit exceptions and RTTI (`dynamic_cast`/`typeinfo`).
+- **C++20 source portability ≠ runtime compatibility.** It does not prove the engine
+  runs on every CPU/OS; each target still needs its own build + tests (CPP20-3).
 - **One board representation = `Position`** (authoritative chess state). NNUE is a
   *consumer* of Position and owns its feature indices + pending updates; it never
   owns a board. **Position/StateInfo/MoveDelta must contain no NNUE-specific types.**
+  These stay plain aggregates — no user-declared constructors/destructors yet
+  (no `std::array`/`span`/`string_view`; that is CPP20-3).
 - **Ownership:** only *network weights* and *immutable lookup tables* are shared
   read-only. *Finny/accumulator refresh caches are mutable, per-worker* state; reset
   them on any network change. Derived piece snapshots in a cache are allowed.
@@ -44,6 +50,20 @@ Separate `build/<config>/` trees — never mix objects across configs.
   thread independent of the (single) search worker + atomic cancellation. Only
   *multiple* search workers are deferred.
 - Keep protocol output serialized to stdout; other diagnostics elsewhere.
+
+## C++20 conventions (this codebase)
+- **Standard headers** only (`<cstdint>`,`<cstring>`,`<cstdio>`,`<cstddef>`,`<chrono>`,
+  `<bit>`), not the C headers. **`std::`-qualify** standard-library functions/types.
+  `nullptr` (not `NULL`); `static_assert` (not `_Static_assert`).
+- `using` aliases for fixed-width types; plain `struct` declarations (no
+  `typedef struct … x;`). Header helpers are `inline`; pure geometry/encoding
+  helpers may be `constexpr` without changing the edge-case contract. Bitboard
+  count/scan uses `<bit>`; the forced portable fallback (`QWC_FORCE_PORTABLE_BITS=1`)
+  is retained for tests.
+- C-style casts are allowed **only** at genuine representation boundaries
+  (`u8`→`int`, sentinel→`Square`, …); otherwise `static_cast`. No narrowing.
+  Preserve `NO_SQUARE`/sentinels: zero-init does not make a `Position` valid —
+  `pos_rebuild`/`pos_set_startpos` must run. Test asserts stay active under `NDEBUG`.
 
 ## Evidence discipline
 - Correctness ≠ speed ≠ strength. Never claim a test passed unless you ran it and it passed.

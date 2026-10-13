@@ -1,0 +1,141 @@
+/* QwenChess: Position -- the one authoritative chess state.
+ *
+ * Contract (docs/ARCHITECTURE.md): Position is the single board. Fields split
+ * into caller-PROVIDED inputs and DERIVED caches:
+ *   inputs  : mailbox[64], side, cr, ep_sq, halfmove, fullmove
+ *   derived : byPiece[16], byColor[2], occ, wKingSq, bKingSq, key   (rebuild)
+ * Piece codes, square numbering and sentinels are unchanged (see core/types.hpp).
+ *
+ * Ownership/lifetime: a Position is a plain, stack- or worker-allocated value.
+ * The one pointer it holds is the NON-OWNING repetition-history head
+ * (Position.history -> the latest applied StateInfo record); the records the
+ * chain points at are caller-owned and must outlive any Position that references
+ * them. The undo record (StateInfo/MoveDelta) and the reversible make/unmake +
+ * null + repetition-history API live in position/state.hpp (included at the
+ * bottom). Position/StateInfo contain NO NNUE types, feature indices or
+ * evaluator caches. No heap allocation is performed by the functions here.
+ *
+ * En passant: `ep_sq` is the RECORDED target -- the square a double push would
+ * let an adjacent pawn capture onto -- retained even when no capture is actually
+ * legal. This is QwenChess's FEN-preserving storage convention; it does not
+ * require Stockfish to use the same internal representation.
+ * It must be structurally consistent with a just-played double push (see
+ * pos_ep_is_valid_meta: correct rank for the side, an empty destination, the
+ * enemy pawn on the just-pushed square, a vacant double-push origin, and a zero
+ * halfmove clock). A structurally valid but uncapturable target is a *valid*
+ * Position. pos_ep_is_legal() decides whether a capture is actually king-safe;
+ * pos_canon_ep_file() is the file the KEY uses and is -1 whenever no capture is
+ * legal, so an uncapturable ep contributes nothing to the key or to repetition
+ * identity. The FEN loader (fen.c) sets `ep_sq` to the recorded target and
+ * rejects malformed ones; pos_reset / pos_set_startpos carry no ep.
+ */
+#ifndef QWC_POSITION_POSITION_HPP
+#define QWC_POSITION_POSITION_HPP
+
+#include "core/types.hpp"
+#include <limits>
+#include "core/bitboard.hpp"
+
+/* Forward-declare the undo-record tag (defined in position/state.hpp, included at
+ * the bottom) so `Position` may hold a NON-OWNING pointer to the latest applied
+ * record without a full include cycle. `struct StateInfo *` here and the
+ * `StateInfo` tag in state.hpp name the same type. */
+struct StateInfo;
+
+/* Storage bound, independent of draw adjudication. FEN counters are checked
+ * before narrowing to u16; T004 must also prevent arithmetic overflow. A draw
+ * threshold does not make a position structurally invalid. */
+constexpr u16 POS_HM_MAX = std::numeric_limits<u16>::max();
+
+struct Position {
+  /* -- inputs (set by a setup path; T004 make/unmake) -- */
+  u8            mailbox[SQ_NB];  /* Piece (0 = empty); the authoritative board */
+  Color         side;            /* side to move: WHITE / BLACK */
+  u8            cr;              /* castling rights: CR_* (0..15) */
+  Square        ep_sq;           /* recorded ep target square, or NO_SQUARE */
+  HalfMoveClock halfmove;        /* rule-50 clock (validated [0,POS_HM_MAX]) */
+  FullMoveNumber fullmove;       /* FEN fullmove number, 1-based (>= 1) */
+  /* -- derived caches (recomputed by pos_rebuild; never trusted as inputs) -- */
+  u64           byPiece[PIECE_NB]; /* one bitboard per piece (1..15) */
+  u64           byColor[COLOR_NB]; /* WHITE / BLACK occupancy */
+  u64           occ;             /* byColor[WHITE] | byColor[BLACK] */
+  Square        wKingSq, bKingSq;  /* king squares, or NO_SQUARE */
+  u64           key;             /* zobrist position key (canonical ep) */
+  /* -- repetition history (T004 cp5). A NON-OWNING pointer to the latest
+   * applied undo record (real move or null); nullptr on a fresh setup (FEN /
+   * start position / reset). The Position does not free or otherwise manage the
+   * records the chain points at -- the caller keeps them alive at stable
+   * addresses -- so a shallow copy of a Position carries the same (borrowed)
+   * pointer and must only be read while those records live. pos_rebuild leaves
+   * it untouched; a successful FEN/reset setup sets it to nullptr (abandoning the
+   * prior chain) and a failed load preserves it. */
+  struct StateInfo *history;
+};
+
+/* Cold setup / rebuild. */
+void pos_reset(Position *pos);          /* empty board, side WHITE, all rights 0 */
+void pos_set_startpos(Position *pos);   /* orthodox start: W, CR_ALL, no ep, hm 0, fm 1 */
+
+/* Recompute every derived field (bitboards, occupancy, king squares, key) from
+ * the inputs. Cold path only (not the make/unmake hot path, which lands in
+ * T004); safe on initialized inputs even with invalid piece codes. Out-of-table
+ * codes are skipped to keep indexing bounded; pos_validate still rejects them.
+ * Does not touch the inputs and does not make an invalid Position valid. */
+void pos_rebuild(Position *pos);
+
+/* Position key for a snapshot (the exact zobrist convention, canonical ep). */
+u64 pos_key(const Position *pos);
+
+/* Canonical ep file: file of `ep_sq` if a fully-legal en-passant capture exists
+ * (see pos_ep_is_legal), else -1. This is the ep component of the position key,
+ * so an un-capturable ep square never affects the key or repetition identity. */
+int pos_canon_ep_file(const Position *pos);
+
+/* True iff a fully-legal en-passant capture exists for the recorded ep square:
+ * the double-pushed enemy pawn and an adjacent friendly captor (there can be up
+ * to two, on files f-1 and f+1) exist, and at least one capture leaves the
+ * capturing king not in check. Depends only on the mailbox + side (it locates the
+ * king there); no legal move generation is performed. */
+int pos_ep_is_legal(const Position *pos);
+
+/* True iff the friendly pawn on `captor` makes a king-safe en-passant capture of
+ * the recorded target (the enemy pawn on the just-pushed square, derived from
+ * `pos`). `captor` must be a friendly pawn on the captured pawn's rank (one rank
+ * behind the recorded target) on an adjacent file; any other square yields 0.
+ * This is the per-captor form of pos_ep_is_legal (which is the OR over the
+ * up-to-two adjacent captors); it exposes the king-safety test so a specific
+ * capture -- e.g. "c5d6 is legal but e5d6 is not" -- can be verified on its own.
+ * The capturing king does not move; the captured pawn is removed first, so it no
+ * longer generates attacks; sliders (including pinned enemy pieces) are counted
+ * geometrically. An absent or malformed EP record returns 0. Cold path. */
+int pos_ep_capture_is_safe(const Position *pos, Square captor);
+
+/* True iff the recorded ep target is acceptable: absent, or structurally
+ * consistent with a double push just played (correct rank for the side, an empty
+ * destination, the enemy pawn on the just-pushed square, a vacant double-push
+ * origin, and a zero halfmove clock). This metadata invariant is upheld by every
+ * Position and enforced by pos_validate; legality is separate (pos_ep_is_legal). */
+int pos_ep_is_valid_meta(const Position *pos);
+
+/* Read-only structural validator. Returns 1 if the Position is internally
+ * consistent (mailbox valid; derived caches == a from-scratch recompute; exactly
+ * one king per color; metadata in range; key == recomputed). Returns 0 and sets
+ * *why to a short reason (may be nullptr) otherwise. Never mutates *pos. This is a
+ * representation-consistency check, NOT a move-legality or reachability proof. */
+int pos_validate(const Position *pos, const char **why);
+
+/* True iff `victim`'s king is attacked by any enemy piece, by geometric attack
+ * (a pinned enemy slider still points at the king) over the board's combined
+ * occupancy. Depends only on the mailbox + the (validated) occupancy / king
+ * square; no legal move generation is performed. Returns 0 if the victim has no
+ * king. This is the single source of truth for "is this color in check?" used
+ * by the validator and by the null move (which rejects a pass while in check).
+ * Cold path. */
+int pos_is_in_check(const Position *pos, Color victim);
+
+/* The undo record (StateInfo/MoveDelta) and the reversible make/unmake API.
+ * Included last so the Position struct above is complete when state.hpp sees it;
+ * state.hpp forward-declares `struct Position` rather than including this header. */
+#include "position/state.hpp"
+
+#endif /* QWC_POSITION_POSITION_HPP */

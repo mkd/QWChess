@@ -6,7 +6,13 @@ rest is an ordered backlog with objective/dependencies/exit-gate. Work is serial
 
 Milestones: **M0** scaffold · **M1** board correctness · **M2** minimal UCI+search ·
 **M3** exact scalar NNUE · **M4** incremental NNUE · **M5** measured strength ·
-**M6** SIMD/platform · **M7** SMP/advanced.
+**M6** SIMD/platform · **M7** SMP/advanced. Plus the cross-cutting **C++20
+Modernization Workstream** (CPP20-1…7; see that section) — a language refactor, not a
+functionality milestone.
+
+> **Language note:** M0–M7 below were authored in **C17** and their checkpoint
+> records quote C17 files/flags historically. The shipped codebase is now **C++20**
+> (CPP20-1); read those C17 references as history, not the current language.
 
 ---
 
@@ -107,10 +113,12 @@ Checkpoints (each a separate compilable, testable, committable unit):
   pawn step, capacity/overflow + canaries, determinism + live history, counter
   independence, and per-candidate make/unmake round-trips. **cp1 is pseudo-legal,
   not legal** (kings may move to attacked squares; a pinned captor's EP stands).
-- **cp2 — own-king safety (legal gen).** (next) filter candidates that leave the
-  own king attacked; the check state restricts to king moves + check-captures;
-  quiet moves are excluded in check; SEE-based pruning; keep every capture/
-  promotion-escape/EP-escape; evasions. Exposes the `mg.boundary` cases as legal.
+- **cp2 — own-king safety (legal gen).** (next M1 task) filter candidates that leave
+  the own king attacked (a move attacks the king iff it reaches the king square from
+  its own destination); when in check, restrict to check-escapes (king moves, captures
+  of the checking piece, and block moves). A **pure correctness filter** — SEE-based
+  ordering/pruning is a later search *strength* feature (M5), not part of legal-move
+  generation. Exposes the `mg.boundary` cases as legal.
 - **cp3 — castling.** independent legal/structural checks (rights, vacant
   in-between, not in check, not passing over attack; kingside rook on f1/h1,
   queenside b1/d1); emits MV_CASTLE with the king destination; no per-candidate
@@ -179,17 +187,71 @@ path) → magic/PEXT attacks (from measurements on this CPU) → LTO/PGO, cache 
 C11-atomics TT + worker pool (keep a deterministic single-worker debug mode) →
 Chess960 → pondering → MultiPV → Syzygy. Each with explicit contracts.
 
+---
+
+## C++20 Modernization Workstream (cross-cutting refactor of the existing code)
+
+A language transition of the **shipped** engine from C17 to C++20 (the former
+deferred roadmap item "a", now active). One reviewable change per task; the C17
+reference build, behavior and test evidence are preserved at every step. It runs as
+a **parallel track** to M0–M7 (which add functionality); the M1 board work resumes at
+T005 cp2 after the CPP20 tasks.
+
+### CPP20-1 — C17 → C++20 language migration  ✅ DONE (this commit)
+Renames (`.c`→`.cpp`, `.h`→`.hpp`); Makefile (`CXX`/`CXXFLAGS`, `-std=c++20`,
+`CXX=g++`, drop C-only warning flags, `build/cpp20/`, `check-c17`→`check-cpp20`);
+`static_assert`/`nullptr`/C++ standard headers/`std::` qualification; `using` aliases
++ plain `struct` aggregates (no constructors); bitboard → `<bit>` (portable fallback
+retained); clock → `std::chrono::steady_clock`; `POS_HM_MAX`/`FEN_BUF_SIZE`/`BB_FULL`→
+`constexpr`; five enum/non-enum ternary warnings fixed at the boundary.
+**Exit gate (met):** `check-cpp20` over 23 files; release + debug builds 0 warnings;
+15/15 release + 15/15 debug; portable bit path green; struct size/alignment unchanged;
+docs flipped off C17. (Sanitizer normal target is host-runner-limited — see STATE.)
+
+### CPP20-2 — scoped enums with explicit underlying types  ← **NEXT**
+Convert `Color`, `PieceType`, `Piece` (and the `MoveFlag` values where clean) to
+fixed-width **scoped** enums, preserving every numeric value, `ALL_PIECES`/`NO_*`
+sentinels and all static_asserts. Verify no narrowing and the size/alignment contract.
+
+### CPP20-3 — storage modernization + interface cleanup + multi-arch validation
+Adopt `std::array` for fixed-size arrays and references/pointers for output
+parameters; consider `std::span`/`std::string_view`/`std::string` only where they
+genuinely simplify an interface; add constructors/`operator==`/`constexpr` only where
+justified. Replace `std::numeric_limits`/`INT64_MAX`-style macros. **Validate** the
+GCC g++ and Clang clang++ builds on x86-64 (both must be green, incl. the strict
+`check-cpp20`); report AArch64 (incl. Apple Silicon) and RV64 support **separately**
+— do not claim untested architecture support.
+
+### CPP20-4 — language comparison + performance regression
+Rebuild and compare the **identical** C baseline against the C++20 code using a
+performance-stable flag combination (same `-march`/optimization, **no** new ISA) on
+x86-64, AArch64 (incl. Apple Silicon) and RV64. Report generated code, timings, memory,
+NPS and instruction mix. **No ISA changes in this task.**
+
+### CPP20-5 — ISA/optimization experiment
+Change ISA/optimization settings and repeat the CPP20-4 measurements. Clearly
+distinguish **language** effects (CPP20-4) from **ISA/optimization** effects (CPP20-5).
+
+### CPP20-6 — platform + library modernization
+Modernize the OS/ABI, threading, synchronization, time and CPU-detection layers and
+standard-library usage where C++20 provides the required semantics. Do **not** alter
+the determinism, ownership, score or synchronization contracts merely because C++
+permits it.
+
+### CPP20-7 — final C++20 audit
+Audit every module against a formal C++20 policy (no C-only constructs, no implicit
+narrowing, no RTTI/exceptions, a defined memory model, portability limits documented).
+Full gate: `check-cpp20` + all tests under release/debug/sanitize + portable bit path +
+size/alignment check, on the validated architectures.
+
+---
+
 ## Deliberately deferred (roadmap — scheduled only on later, measured need)
-- **C++20 migration (a).** A deliberate, later transition of the *shipped* engine
-  to C++20, to unlock higher-performance implementations where C is too limiting.
-  Current policy stays C17; no C++ compiler/runtime is a dependency of the engine
-  in the present milestones. When scheduled it must: (1) gate on C++20 + the
-  platform-standard library, documenting exactly why each C++ feature is required
-  and the C17 cost it removes; (2) keep the existing correctness/NNUE/search
-  regressions green; (3) preserve the C17 reference implementation alongside (a
-  dual-build, e.g. a `make cxx` config) until C++ parity is proven on every gate;
-  (4) record the new build + sanitizer coverage; (5) keep UCI, determinism and the
-  single-worker mode identical.
+- **C++20 migration (a).** Now the active **C++20 Modernization Workstream** above
+  (CPP20-1 done, CPP20-2 next) — no longer deferred. Its continuing rules: gate on
+  C++20 + the platform standard library, keep the full correctness/NNUE/search
+  regression suite green, record the new build + sanitizer coverage, and keep UCI,
+  determinism and the single-worker mode identical.
 - **Targeted platform/performance tuning (b).** Only after a measured bottleneck on
   the actual execution CPU: hot-path cache alignment/branch layout, vector width and
   instruction sets, LTO/PGO, and a benchmark-driven choice between a standard C
@@ -200,6 +262,11 @@ Chess960 → pondering → MultiPV → Syzygy. Each with explicit contracts.
 ---
 
 ## Ordered backlog (IDs reserved)
-`T008..T010` (M3) → `T011` (M4) → `T012..` (M5 strength) → `T…` (M6) → `T…` (M7).
-Reordering note: M2 search runs on the **labelled temp eval**, so search and NNUE
-progress independently and merge at M5; everything else is in the stated order.
+C++20 track: `CPP20-2 → CPP20-3 → CPP20-4 → CPP20-5 → CPP20-6 → CPP20-7` (CPP20-1 done).
+Milestones: `T005 cp2` (legal movegen) → `cp3` (castling) → `cp4` (perft = M1 exit)
+→ `T006..T007` (M2) → `T008..T010` (M3) → `T011` (M4) → `T012..` (M5 strength)
+→ `T…` (M6) → `T…` (M7).
+Reordering notes: M2 search runs on the **labelled temp eval**, so search and NNUE
+progress independently and merge at M5. The C++20 track is a cross-cutting refactor
+that may interleave with the M-track; CPP20-3/4/5 must land before M6 (SIMD) so the
+performance comparison is against a settled C++ baseline.

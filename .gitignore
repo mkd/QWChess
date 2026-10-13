@@ -1,4 +1,6 @@
-# Build output (per-config trees: build/release, build/debug, build/sanitize)
+# Build output (per-config trees: build/cpp20/release, build/cpp20/debug,
+# build/cpp20/sanitize). The `cpp20/` segment separates the migrated C++20
+# artifacts from any older C build.
 build/
 
 # Fetched NNUE network (~98 MB binary). Re-fetch with `make net`; keep out of Git.
