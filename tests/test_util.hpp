@@ -8,7 +8,24 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <type_traits>
 #include "core/types.hpp"
+
+/* Convert a domain value or an integer to its int form for assertion comparison.
+ * A scoped enum (Piece/PieceType/Color/MoveFlag) is taken through to_under(); any
+ * other (already-integer) type is a plain cast. This is the single, documented
+ * typed->raw boundary for the check macros below, so call sites may keep values
+ * typed instead of scattering to_under() at every assertion. */
+template <typename T>
+static inline int qwc_as_int(T v) {
+  if constexpr (std::is_enum_v<T>) return to_under(v);
+  else return (int)v;
+}
+template <typename T>
+static inline u64 qwc_as_u64(T v) {
+  if constexpr (std::is_enum_v<T>) return to_under(v);
+  else return (u64)v;
+}
 
 static int qwc_cases = 0;
 static int qwc_fails = 0;
@@ -35,14 +52,14 @@ static int qwc_end(void) {
 } while (0)
 
 #define QWC_EQ_I(got, exp, label) do { \
-  qwc_cases++; int _g = (got), _e = (exp); \
+  qwc_cases++; int _g = qwc_as_int(got), _e = qwc_as_int(exp); \
   if (_g != _e) { qwc_fails++; \
     if (qwc_fails <= qwc_fail_budget) \
       std::printf("  FAIL %s:%d  %s: got %d exp %d\n", __FILE__, __LINE__, label, _g, _e); } \
 } while (0)
 
 #define QWC_EQ_U64(got, exp, label) do { \
-  qwc_cases++; u64 _g = (got), _e = (exp); \
+  qwc_cases++; u64 _g = qwc_as_u64(got), _e = qwc_as_u64(exp); \
   if (_g != _e) { qwc_fails++; \
     if (qwc_fails <= qwc_fail_budget) \
       std::printf("  FAIL %s:%d  %s: got 0x%016llx exp 0x%016llx\n", __FILE__, __LINE__, \

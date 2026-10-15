@@ -85,12 +85,12 @@ static int derived_match_rebuild(const Position *pos, const char **why) {
 static void pos_mirror(const Position *src, Position *dst) {
   std::memset(dst->mailbox, 0, SQ_NB);
   for (int s = 0; s < SQ_NB; s++) {
-    int p = src->mailbox[s];
+    int p = to_under(src->mailbox[s]);
     if (!p) continue;
     int f = file_of((Square)s), r = rank_of((Square)s);
-    dst->mailbox[square_of(f, 7 - r)] = (u8)(p ^ 8);
+    dst->mailbox[square_of(f, 7 - r)] = (Piece)(p ^ 8);
   }
-  dst->side = (Color)(1 - src->side);
+  dst->side = (Color)(1 - to_under(src->side));
   dst->cr   = src->cr;
   if (src->ep_sq < SQ_NB) {
     int f = file_of(src->ep_sq), r = rank_of(src->ep_sq);
@@ -150,7 +150,7 @@ enum { MK_NB = (int)(sizeof mk / sizeof mk[0]) };
 static int ep_body(Position *pos, int from, int to, int ok, int safe, const char *after) {
   Position before = *pos;
   StateInfo st; std::memset(&st, 0, sizeof st);
-  Move mv = make_move((Square)from, (Square)to, MV_EP, 0u);
+  Move mv = make_move((Square)from, (Square)to, MoveFlag::MV_EP, 0u);
   const char *why = nullptr;
   Color mside = (Color)before.side;
 
@@ -163,27 +163,27 @@ static int ep_body(Position *pos, int from, int to, int ok, int safe, const char
   }
 
   QWC_TRUE(pos_make_move(pos, &st, mv) == 1, "make accepted");
-  int victim = (mside == WHITE) ? (to - 8) : (to + 8);
+  int victim = (mside == Color::WHITE) ? (to - 8) : (to + 8);
   Piece mover = before.mailbox[from];
-  Piece enemy = (Piece)((mside == WHITE) ? B_PAWN : W_PAWN);
-  int full_after = (mside == BLACK) ? ((int)before.fullmove + 1) : ((int)before.fullmove);
+  Piece enemy = (Piece)((mside == Color::WHITE) ? Piece::B_PAWN : Piece::W_PAWN);
+  int full_after = (mside == Color::BLACK) ? ((int)before.fullmove + 1) : ((int)before.fullmove);
 
   QWC_EQ_I(st.delta.edit_count, 3, "three square edits");
   QWC_EQ_I((int)st.delta.edits[0].sq, from, "edit[0].sq = captor origin");
   QWC_EQ_I((int)st.delta.edits[0].before, (int)mover, "edit[0].before = captor");
-  QWC_EQ_I((int)st.delta.edits[0].after, (int)NO_PIECE, "edit[0].after = empty");
+  QWC_EQ_I((int)st.delta.edits[0].after, (int)Piece::NO_PIECE, "edit[0].after = empty");
   QWC_EQ_I((int)st.delta.edits[1].sq, victim, "edit[1].sq = captured pawn");
   QWC_EQ_I((int)st.delta.edits[1].before, (int)enemy, "edit[1].before = victim");
-  QWC_EQ_I((int)st.delta.edits[1].after, (int)NO_PIECE, "edit[1].after = empty");
+  QWC_EQ_I((int)st.delta.edits[1].after, (int)Piece::NO_PIECE, "edit[1].after = empty");
   QWC_EQ_I((int)st.delta.edits[2].sq, to, "edit[2].sq = landing");
-  QWC_EQ_I((int)st.delta.edits[2].before, (int)NO_PIECE, "edit[2].before = empty");
+  QWC_EQ_I((int)st.delta.edits[2].before, (int)Piece::NO_PIECE, "edit[2].before = empty");
   QWC_EQ_I((int)st.delta.edits[2].after, (int)mover, "edit[2].after = captor");
 
-  QWC_EQ_I((int)pos->mailbox[from], (int)NO_PIECE, "captor origin now empty");
-  QWC_EQ_I((int)pos->mailbox[victim], (int)NO_PIECE, "captured pawn removed");
+  QWC_EQ_I((int)pos->mailbox[from], (int)Piece::NO_PIECE, "captor origin now empty");
+  QWC_EQ_I((int)pos->mailbox[victim], (int)Piece::NO_PIECE, "captured pawn removed");
   QWC_EQ_I((int)pos->mailbox[to], (int)mover, "captor landed on target");
 
-  QWC_EQ_I((int)pos->side, (int)(1 - mside), "side flipped");
+  QWC_EQ_I((int)pos->side, (int)(1 - to_under(mside)), "side flipped");
   QWC_EQ_I((int)pos->ep_sq, (int)NO_SQUARE, "recorded ep cleared");
   QWC_EQ_I((int)pos->halfmove, 0, "halfmove reset (pawn capture)");
   QWC_EQ_I((int)pos->fullmove, full_after, "fullmove after");
@@ -243,7 +243,7 @@ static int t_mirrors(void) {
     Position w, pos; const char *why = nullptr;
     QWC_TRUE(fen_load(&w, mk[i].fen, &why) == 1, "source loads");
     pos_mirror(&w, &pos);
-    QWC_EQ_I((int)pos.side, (int)BLACK, "mirror is black to move");
+    QWC_EQ_I((int)pos.side, (int)Color::BLACK, "mirror is black to move");
     QWC_TRUE(pos_validate(&pos, &why), "mirror (pre-capture) validates");
     int mfrom = reflect_int(mk[i].from), mto = reflect_int(mk[i].to);
     fail |= ep_body(&pos, mfrom, mto, mk[i].ok, mk[i].safe, nullptr);
@@ -261,19 +261,19 @@ static int t_sequence(void) {
   /* 1.b2b4 (white double push) records the ep target b3 */
   QWC_TRUE(pos_make_move(&pos, &st[0], make_move(sq_of(1, 1), sq_of(1, 3), 0u, 0u)) == 1, "1.b2b4 accepted");
   QWC_EQ_I((int)pos.ep_sq, (int)sq_of(1, 2), "ep target b3 recorded");
-  QWC_EQ_I((int)pos.side, (int)BLACK, "black to move after push");
+  QWC_EQ_I((int)pos.side, (int)Color::BLACK, "black to move after push");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "derived/key after push == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "post-push validates");
   Position after_push = pos;   /* snapshot: the position right after 1.b2b4 */
 
   /* 1...c4xb3 (black en passant) */
-  QWC_TRUE(pos_make_move(&pos, &st[1], make_move(sq_of(2, 3), sq_of(1, 2), MV_EP, 0u)) == 1, "1...c4xb3 ep accepted");
+  QWC_TRUE(pos_make_move(&pos, &st[1], make_move(sq_of(2, 3), sq_of(1, 2), MoveFlag::MV_EP, 0u)) == 1, "1...c4xb3 ep accepted");
   QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "recorded ep cleared");
-  QWC_EQ_I((int)pos.side, (int)WHITE, "white to move after ep");
+  QWC_EQ_I((int)pos.side, (int)Color::WHITE, "white to move after ep");
   QWC_EQ_I((int)pos.fullmove, 2, "fullmove 2 after black move");
-  QWC_EQ_I((int)pos.mailbox[sq_of(2, 3)], (int)NO_PIECE, "c4 now empty");
-  QWC_EQ_I((int)pos.mailbox[sq_of(1, 3)], (int)NO_PIECE, "b4 (captured) removed");
-  QWC_EQ_I((int)pos.mailbox[sq_of(1, 2)], (int)B_PAWN, "captor landed on b3");
+  QWC_EQ_I((int)pos.mailbox[sq_of(2, 3)], (int)Piece::NO_PIECE, "c4 now empty");
+  QWC_EQ_I((int)pos.mailbox[sq_of(1, 3)], (int)Piece::NO_PIECE, "b4 (captured) removed");
+  QWC_EQ_I((int)pos.mailbox[sq_of(1, 2)], (int)Piece::B_PAWN, "captor landed on b3");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "derived/key after ep == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "final position validates");
   char fb[FEN_BUF_SIZE];
@@ -296,7 +296,7 @@ static int count_case(const char *tag, const char *fen, int fm, int from, int to
   pos.fullmove = (FullMoveNumber)fm;
   Position before = pos;
   StateInfo st; std::memset(&st, 0, sizeof st);
-  Move mv = make_move((Square)from, (Square)to, MV_EP, 0u);
+  Move mv = make_move((Square)from, (Square)to, MoveFlag::MV_EP, 0u);
   if (ok) {
     QWC_TRUE(pos_make_move(&pos, &st, mv) == 1, "ep accepted");
     QWC_EQ_I((int)pos.fullmove, fm_after, "fullmove after");
@@ -362,46 +362,46 @@ static int t_reject(void) {
   int fail = 0;
   /* absent recorded target */
   fail |= reject_fen_case("ep_reject.absent_ep",
-    "k7/8/8/3pP3/8/8/8/4K3 w - - 0 20", 36, 43, MV_EP, 0);
+    "k7/8/8/3pP3/8/8/8/4K3 w - - 0 20", 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* wrong target (to the captured pawn's square, not the ep square) */
   fail |= reject_fen_case("ep_reject.wrong_target",
-    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 35, MV_EP, 0);
+    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 35, to_under(MoveFlag::MV_EP), 0);
   /* geometry: captor on the capture rank (not one forward) */
   fail |= reject_fen_case("ep_reject.bad_rank",
-    "k7/8/2P5/3p4/8/8/8/4K3 w - d6 0 1", 42, 43, MV_EP, 0);
+    "k7/8/2P5/3p4/8/8/8/4K3 w - d6 0 1", 42, 43, to_under(MoveFlag::MV_EP), 0);
   /* geometry: captor two files away (not a diagonal) */
   fail |= reject_fen_case("ep_reject.bad_file",
-    "k7/8/8/1P1p4/8/8/8/4K3 w - d6 0 1", 33, 43, MV_EP, 0);
+    "k7/8/8/1P1p4/8/8/8/4K3 w - d6 0 1", 33, 43, to_under(MoveFlag::MV_EP), 0);
   /* wrong source piece (a knight, not the friendly pawn) */
   fail |= reject_fen_case("ep_reject.source_knight",
-    "k7/8/8/3pN3/8/8/8/4K3 w - d6 0 1", 36, 43, MV_EP, 0);
+    "k7/8/8/3pN3/8/8/8/4K3 w - d6 0 1", 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* wrong source piece (an enemy pawn) */
   fail |= reject_fen_case("ep_reject.source_enemy",
-    "k7/8/8/3pp3/8/8/8/4K3 w - d6 0 1", 36, 43, MV_EP, 0);
+    "k7/8/8/3pp3/8/8/8/4K3 w - d6 0 1", 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: own piece on the captured (just-pushed) square */
-  static const PC own5[]  = { {36, W_PAWN}, {4, W_KING}, {35, W_PAWN}, {0, B_KING} };
-  fail |= reject_mkpos_case("ep_reject.victim_own", WHITE, 0, 0, 1, 43, own5, 4, 36, 43, MV_EP, 0);
+  static const PC own5[]  = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {35, Piece::W_PAWN}, {0, Piece::B_KING} };
+  fail |= reject_mkpos_case("ep_reject.victim_own", Color::WHITE, 0, 0, 1, 43, own5, 4, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: empty captured square */
-  static const PC emp5[]   = { {36, W_PAWN}, {4, W_KING}, {0, B_KING} };
-  fail |= reject_mkpos_case("ep_reject.victim_empty", WHITE, 0, 0, 1, 43, emp5, 3, 36, 43, MV_EP, 0);
+  static const PC emp5[]   = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {0, Piece::B_KING} };
+  fail |= reject_mkpos_case("ep_reject.victim_empty", Color::WHITE, 0, 0, 1, 43, emp5, 3, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: an enemy non-pawn on the captured square */
-  static const PC kn5[]    = { {36, W_PAWN}, {4, W_KING}, {35, B_KNIGHT}, {0, B_KING} };
-  fail |= reject_mkpos_case("ep_reject.victim_nonpawn", WHITE, 0, 0, 1, 43, kn5, 4, 36, 43, MV_EP, 0);
+  static const PC kn5[]    = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {35, Piece::B_KNIGHT}, {0, Piece::B_KING} };
+  fail |= reject_mkpos_case("ep_reject.victim_nonpawn", Color::WHITE, 0, 0, 1, 43, kn5, 4, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: the ep target itself is occupied */
-  static const PC occ6[]   = { {36, W_PAWN}, {4, W_KING}, {0, B_KING}, {35, B_PAWN}, {43, B_PAWN} };
-  fail |= reject_mkpos_case("ep_reject.target_occupied", WHITE, 0, 0, 1, 43, occ6, 5, 36, 43, MV_EP, 0);
+  static const PC occ6[]   = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {0, Piece::B_KING}, {35, Piece::B_PAWN}, {43, Piece::B_PAWN} };
+  fail |= reject_mkpos_case("ep_reject.target_occupied", Color::WHITE, 0, 0, 1, 43, occ6, 5, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: the double-push origin is occupied */
-  static const PC occ7[]   = { {36, W_PAWN}, {4, W_KING}, {0, B_KING}, {35, B_PAWN}, {51, B_PAWN} };
-  fail |= reject_mkpos_case("ep_reject.origin_occupied", WHITE, 0, 0, 1, 43, occ7, 5, 36, 43, MV_EP, 0);
+  static const PC occ7[]   = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {0, Piece::B_KING}, {35, Piece::B_PAWN}, {51, Piece::B_PAWN} };
+  fail |= reject_mkpos_case("ep_reject.origin_occupied", Color::WHITE, 0, 0, 1, 43, occ7, 5, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* malformed record: halfmove clock nonzero */
-  static const PC hm5[]    = { {36, W_PAWN}, {4, W_KING}, {0, B_KING}, {35, B_PAWN} };
-  fail |= reject_mkpos_case("ep_reject.halfmove_nonzero", WHITE, 0, 5, 1, 43, hm5, 4, 36, 43, MV_EP, 0);
+  static const PC hm5[]    = { {36, Piece::W_PAWN}, {4, Piece::W_KING}, {0, Piece::B_KING}, {35, Piece::B_PAWN} };
+  fail |= reject_mkpos_case("ep_reject.halfmove_nonzero", Color::WHITE, 0, 5, 1, 43, hm5, 4, 36, 43, to_under(MoveFlag::MV_EP), 0);
   /* invalid flags: EP | promotion (mixed) */
   fail |= reject_fen_case("ep_reject.flags_mixed",
-    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 43, MV_EP | MV_PROMO, QUEEN);
+    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 43, to_under(MoveFlag::MV_EP) | to_under(MoveFlag::MV_PROMO), to_under(PieceType::QUEEN));
   /* invalid payload: a promotion type on an EP move */
   fail |= reject_fen_case("ep_reject.promo_payload",
-    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 43, MV_EP, QUEEN);
+    "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", 36, 43, to_under(MoveFlag::MV_EP), to_under(PieceType::QUEEN));
   return fail;
 }
 

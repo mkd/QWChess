@@ -92,7 +92,7 @@ static void newpos(Position *p, Color side, int cr, int hm, int fm) {
   p->side = side; p->cr = (u8)cr; p->halfmove = (HalfMoveClock)hm; p->fullmove = (FullMoveNumber)fm; p->ep_sq = NO_SQUARE;
 }
 /* Place one piece directly in the mailbox (call pos_rebuild() after all). */
-static void place(Position *p, Square sq, int pc) { p->mailbox[sq] = (Piece)pc; }
+static void place(Position *p, Square sq, Piece pc) { p->mailbox[sq] = pc; }
 
 /* make() must succeed. */
 static void check_accept(Position *pos, StateInfo *st, Move m, const char *name) {
@@ -119,7 +119,7 @@ static int t_sequence(void) {
 
   /* 1.e4 (white double push) */
   check_accept(&pos, &st[0], mv(4, 1, 4, 3), "1.e4 accepted");
-  QWC_EQ_I((int)pos.side, (int)BLACK, "side -> black after e4");
+  QWC_EQ_I((int)pos.side, (int)Color::BLACK, "side -> black after e4");
   QWC_EQ_I((int)pos.ep_sq, (int)sq_of(4, 2), "raw ep = e3 after e4");
   QWC_EQ_I(pos_canon_ep_file(&pos), -1, "e3 canonical file -1 (no black captor)");
   QWC_EQ_I((int)pos.halfmove, 0, "halfmove reset by e4");
@@ -139,7 +139,7 @@ static int t_sequence(void) {
   check_accept(&pos, &st[2], mv(6, 0, 5, 2), "2.Nf3 accepted");
   QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "ep clears after non-push Nf3");
   QWC_EQ_I(pos_canon_ep_file(&pos), -1, "no ep -> canonical -1");
-  QWC_EQ_I((int)pos.side, (int)BLACK, "side -> black after Nf3");
+  QWC_EQ_I((int)pos.side, (int)Color::BLACK, "side -> black after Nf3");
   QWC_EQ_I((int)pos.halfmove, 1, "halfmove 1 after quiet Nf3");
   QWC_EQ_I((int)pos.fullmove, 2, "fullmove stays 2 after white move");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "final derived/key == rebuild");
@@ -169,19 +169,19 @@ static int t_a1a8(void) {
   Position base = pos;
 
   check_accept(&pos, &st, mv(0, 0, 0, 7), "Ra1xa8 accepted");   /* a1 -> a8 */
-  QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)W_ROOK, "white rook now on a8");
-  QWC_EQ_I((int)pos.mailbox[sq_of(0, 0)], (int)NO_PIECE, "a1 now empty");
-  QWC_EQ_I((int)pos.mailbox[sq_of(4, 7)], (int)B_KING, "black king e8");
-  QWC_EQ_I((int)pos.mailbox[sq_of(7, 7)], (int)B_ROOK, "black rook h8");
-  QWC_EQ_I((int)pos.mailbox[sq_of(4, 0)], (int)W_KING, "white king e1");
-  QWC_EQ_I((int)pos.mailbox[sq_of(7, 0)], (int)W_ROOK, "white rook h1");
+  QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)Piece::W_ROOK, "white rook now on a8");
+  QWC_EQ_I((int)pos.mailbox[sq_of(0, 0)], (int)Piece::NO_PIECE, "a1 now empty");
+  QWC_EQ_I((int)pos.mailbox[sq_of(4, 7)], (int)Piece::B_KING, "black king e8");
+  QWC_EQ_I((int)pos.mailbox[sq_of(7, 7)], (int)Piece::B_ROOK, "black rook h8");
+  QWC_EQ_I((int)pos.mailbox[sq_of(4, 0)], (int)Piece::W_KING, "white king e1");
+  QWC_EQ_I((int)pos.mailbox[sq_of(7, 0)], (int)Piece::W_ROOK, "white rook h1");
   QWC_EQ_I((int)pos.wKingSq, (int)sq_of(4, 0), "wKingSq e1");
   QWC_EQ_I((int)pos.bKingSq, (int)sq_of(4, 7), "bKingSq e8");
   QWC_EQ_I((int)pos.cr, (int)(CR_WK | CR_BK), "castling Kk after rook move + capture");
   QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "no ep");
   QWC_EQ_I((int)pos.halfmove, 0, "halfmove reset by capture");
   QWC_EQ_I((int)pos.fullmove, 42, "fullmove unchanged (white moved)");
-  QWC_EQ_I((int)pos.side, (int)BLACK, "side -> black");
+  QWC_EQ_I((int)pos.side, (int)Color::BLACK, "side -> black");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "derived/key == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "post-move validates");
 
@@ -202,9 +202,9 @@ static int t_ep_doublepush(void) {
   /* Each: black pawn on d7, black to move, no ep, hm 9 fm 19; play d7d5. The
    * pushed pawn lands on d5 recording ep d6; the canonical file is 3 (legal
    * captor), -1 (pinned captor) and 3 (captor on the other file). */
-  const PC g1[] = { { sq_of(4,0), W_KING }, { sq_of(4,7), B_KING }, { sq_of(3,6), B_PAWN }, { sq_of(4,4), W_PAWN } };
-  const PC g2[] = { { sq_of(4,0), W_KING }, { sq_of(0,7), B_KING }, { sq_of(4,7), B_ROOK }, { sq_of(3,6), B_PAWN }, { sq_of(4,4), W_PAWN } };
-  const PC g5[] = { { sq_of(4,0), W_KING }, { sq_of(4,7), B_KING }, { sq_of(3,6), B_PAWN }, { sq_of(2,4), W_PAWN } };
+  const PC g1[] = { { sq_of(4,0), Piece::W_KING }, { sq_of(4,7), Piece::B_KING }, { sq_of(3,6), Piece::B_PAWN }, { sq_of(4,4), Piece::W_PAWN } };
+  const PC g2[] = { { sq_of(4,0), Piece::W_KING }, { sq_of(0,7), Piece::B_KING }, { sq_of(4,7), Piece::B_ROOK }, { sq_of(3,6), Piece::B_PAWN }, { sq_of(4,4), Piece::W_PAWN } };
+  const PC g5[] = { { sq_of(4,0), Piece::W_KING }, { sq_of(4,7), Piece::B_KING }, { sq_of(3,6), Piece::B_PAWN }, { sq_of(2,4), Piece::W_PAWN } };
   const PC *geos[] = { g1, g2, g5 };
   const int  npcs[] = { 4, 5, 4 };
   const int  exp[]  = { 3, -1, 3 };
@@ -213,13 +213,13 @@ static int t_ep_doublepush(void) {
                         "geo#5 captor other side -> file 3" };
 
   for (int gi = 0; gi < 3; gi++) {
-    Position pos = mkpos(BLACK, 0, 9, 19, geos[gi], npcs[gi]);
+    Position pos = mkpos(Color::BLACK, 0, 9, 19, geos[gi], npcs[gi]);
     std::memset(&st, 0, sizeof st);
     QWC_TRUE(pos_validate(&pos, &why), "pre-move validates");
     check_accept(&pos, &st, mv(3, 6, 3, 4), "d7d5 (black double push) accepted");
     QWC_EQ_I((int)pos.ep_sq, (int)sq_of(3, 5), "raw ep = d6 retained");
     QWC_EQ_I(pos_canon_ep_file(&pos), exp[gi], nm[gi]);
-    QWC_EQ_I((int)pos.side, (int)WHITE, "side -> white after black push");
+    QWC_EQ_I((int)pos.side, (int)Color::WHITE, "side -> white after black push");
     QWC_EQ_I((int)pos.halfmove, 0, "halfmove reset by pawn push");
     QWC_EQ_I((int)pos.fullmove, 20, "fullmove 20 after black move");
     QWC_TRUE(derived_match_rebuild(&pos, &why), "derived/key == rebuild");
@@ -249,23 +249,23 @@ static int t_ep_nonpawn(void) {
   qwc_begin("makeunmake.ep_nonpawn");
   StateInfo st;
   const char *why = nullptr;
-  struct { const char *fen; int pf, pr, tf, tr; int pc; int hm, fm; int side; const char *after; } C[] = {
+  struct { const char *fen; int pf, pr, tf, tr; Piece pc; int hm, fm; Color side; const char *after; } C[] = {
     /* the exact supplied reproducer: a white rook on d2, two ranks forward */
-    { "7k/8/8/8/8/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, W_ROOK,  1, 1, BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 1 1" },
+    { "7k/8/8/8/8/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, Piece::W_ROOK,  1, 1, Color::BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 1 1" },
     /* a quiet queen, same white geometry */
-    { "7k/8/8/8/8/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, W_QUEEN, 1, 1, BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 1 1" },
+    { "7k/8/8/8/8/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, Piece::W_QUEEN, 1, 1, Color::BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 1 1" },
     /* a quiet rook, the rank-reflected black geometry (d7 -> d5) */
-    { "7K/3r4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_ROOK,  1, 2, WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 1 2" },
+    { "7K/3r4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, Piece::B_ROOK,  1, 2, Color::WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 1 2" },
     /* a quiet queen, black */
-    { "7K/3q4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_QUEEN, 1, 2, WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 1 2" },
+    { "7K/3q4/8/8/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, Piece::B_QUEEN, 1, 2, Color::WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 1 2" },
     /* a rook capture two ranks forward, white (Rxd4) */
-    { "7k/8/8/8/3r4/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, W_ROOK,  0, 1, BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 0 1" },
+    { "7k/8/8/8/3r4/8/3R4/K7 w - - 0 1",   3, 1, 3, 3, Piece::W_ROOK,  0, 1, Color::BLACK, "7k/8/8/8/3R4/8/8/K7 b - - 0 1" },
     /* a rook capture, black (Rxd5) */
-    { "7K/3r4/8/3R4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_ROOK,  0, 2, WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 0 2" },
+    { "7K/3r4/8/3R4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, Piece::B_ROOK,  0, 2, Color::WHITE, "7K/8/8/3r4/8/8/8/k7 w - - 0 2" },
     /* a queen capture, white (Qxd4) */
-    { "7k/8/8/8/3q4/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, W_QUEEN, 0, 1, BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 0 1" },
+    { "7k/8/8/8/3q4/8/3Q4/K7 w - - 0 1",   3, 1, 3, 3, Piece::W_QUEEN, 0, 1, Color::BLACK, "7k/8/8/8/3Q4/8/8/K7 b - - 0 1" },
     /* a queen capture, black (Qxd5) */
-    { "7K/3q4/8/3Q4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, B_QUEEN, 0, 2, WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 0 2" },
+    { "7K/3q4/8/3Q4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, Piece::B_QUEEN, 0, 2, Color::WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 0 2" },
   };
   for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
     Position pos;
@@ -276,7 +276,7 @@ static int t_ep_nonpawn(void) {
     /* the fix: a non-pawn move records NO en-passant target (it was d3/d6 before) */
     QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "no EP is recorded for a non-pawn move");
     QWC_EQ_I((int)pos.mailbox[sq_of(C[i].tf, C[i].tr)], C[i].pc, "the piece lands on the destination");
-    QWC_EQ_I((int)pos.mailbox[sq_of(C[i].pf, C[i].pr)], (int)NO_PIECE, "the origin is now empty");
+    QWC_EQ_I((int)pos.mailbox[sq_of(C[i].pf, C[i].pr)], (int)Piece::NO_PIECE, "the origin is now empty");
     QWC_EQ_I((int)pos.side, C[i].side, "the side flipped");
     QWC_EQ_I((int)pos.halfmove, C[i].hm, "halfmove as expected");
     QWC_EQ_I((int)pos.fullmove, C[i].fm, "fullmove as expected");
@@ -336,11 +336,11 @@ static int t_counters(void) {
   }
   {
     Position p; pos_reset(&p);
-    p.mailbox[sq_of(0, 0)] = W_ROOK;   /* a1 */
-    p.mailbox[sq_of(0, 1)] = B_PAWN;   /* a2: capturable by the a1 rook */
-    p.mailbox[sq_of(4, 0)] = W_KING;   /* e1 */
-    p.mailbox[sq_of(4, 7)] = B_KING;   /* e8 */
-    p.side = WHITE; p.cr = 0; p.ep_sq = NO_SQUARE;
+    p.mailbox[sq_of(0, 0)] = Piece::W_ROOK;   /* a1 */
+    p.mailbox[sq_of(0, 1)] = Piece::B_PAWN;   /* a2: capturable by the a1 rook */
+    p.mailbox[sq_of(4, 0)] = Piece::W_KING;   /* e1 */
+    p.mailbox[sq_of(4, 7)] = Piece::B_KING;   /* e8 */
+    p.side = Color::WHITE; p.cr = 0; p.ep_sq = NO_SQUARE;
     p.halfmove = 100; p.fullmove = 1;
     pos_rebuild(&p);
     std::memset(&st, 0, sizeof st);
@@ -379,112 +379,112 @@ static int t_malformed(void) {
   check_reject(&pos, &st, mv(4, 0, 4, 0), "from == to (e1e1)");
   check_reject(&pos, &st, (Move)(mv(4, 1, 4, 2) | (1u << 15)), "reserved bit 15 set");
   check_reject(&pos, &st, (Move)(mv(4, 1, 4, 2) | (1u << 19)), "reserved bits 19..31 set");
-  /* e1->g1 with MV_CASTLE is the king-to-king spelling, which is non-orthodox
+  /* e1->g1 with MoveFlag::MV_CASTLE is the king-to-king spelling, which is non-orthodox
    * under the frozen king-origin-to-rook-origin encoding (and the path is
    * blocked on the start position); checkpoint 3 rejects it on the destination. */
-  check_reject(&pos, &st, mvf(4, 0, 6, 0, MV_CASTLE, NO_PIECE), "castle e1g1 (non-orthodox destination, not a rook origin)");
+  check_reject(&pos, &st, mvf(4, 0, 6, 0, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE)), "castle e1g1 (non-orthodox destination, not a rook origin)");
   check_reject(&pos, &st, mv(0, 6, 0, 5), "source holds a black piece while white to move (a7)");
   check_reject(&pos, &st, mv(0, 0, 1, 0), "friendly destination (a1 rook -> b1 knight)");
 
   /* promotions and underpromotions are now supported (checkpoint 4): a7a8=Q and
    * a7a8=R are valid straight promotions (the a7 pawn reaches the last rank on an
    * empty square). Each is accepted, its promoted piece verified on a8, and then
-   * undone so the MV_EP check below still sees the original board. (The dedicated
-   * promotion_makeunmake_test.c verifies the full family. The MV_EP e5xd6 below
+   * undone so the MoveFlag::MV_EP check below still sees the original board. (The dedicated
+   * promotion_makeunmake_test.c verifies the full family. The MoveFlag::MV_EP e5xd6 below
    * is still rejected: this position records NO en-passant target for d6, and a
    * valid EP capture must target the recorded square -- checkpoint 2.) */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(0, 6), W_PAWN);   /* a7 */
-  place(&pos, sq_of(4, 0), W_KING);   /* e1 */
-  place(&pos, sq_of(4, 7), B_KING);   /* e8 */
-  place(&pos, sq_of(3, 4), B_PAWN);   /* d5: an e5xd6 ep is geometrically real */
-  place(&pos, sq_of(4, 4), W_PAWN);   /* e5 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(0, 6), Piece::W_PAWN);   /* a7 */
+  place(&pos, sq_of(4, 0), Piece::W_KING);   /* e1 */
+  place(&pos, sq_of(4, 7), Piece::B_KING);   /* e8 */
+  place(&pos, sq_of(3, 4), Piece::B_PAWN);   /* d5: an e5xd6 ep is geometrically real */
+  place(&pos, sq_of(4, 4), Piece::W_PAWN);   /* e5 */
   pos_rebuild(&pos);
   {
     Position pbefore = pos;
-    check_accept(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, QUEEN), "promotion a7a8=Q");
-    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)W_QUEEN, "a8 holds the promoted queen");
+    check_accept(&pos, &st, mvf(0, 6, 0, 7, to_under(MoveFlag::MV_PROMO), to_under(PieceType::QUEEN)), "promotion a7a8=Q");
+    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)Piece::W_QUEEN, "a8 holds the promoted queen");
     pos_unmake_move(&pos, &st);
     QWC_TRUE(pos_equal(&pos, &pbefore), "a7a8=Q undone exactly");
-    check_accept(&pos, &st, mvf(0, 6, 0, 7, MV_PROMO, ROOK), "underpromotion a7a8=R");
-    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)W_ROOK, "a8 holds the promoted rook");
+    check_accept(&pos, &st, mvf(0, 6, 0, 7, to_under(MoveFlag::MV_PROMO), to_under(PieceType::ROOK)), "underpromotion a7a8=R");
+    QWC_EQ_I((int)pos.mailbox[sq_of(0, 7)], (int)Piece::W_ROOK, "a8 holds the promoted rook");
     pos_unmake_move(&pos, &st);
     QWC_TRUE(pos_equal(&pos, &pbefore), "a7a8=R undone exactly");
   }
-  check_reject(&pos, &st, mvf(4, 4, 3, 5, MV_EP, NO_PIECE), "MV_EP e5xd6 with no recorded ep target");
+  check_reject(&pos, &st, mvf(4, 4, 3, 5, to_under(MoveFlag::MV_EP), to_under(Piece::NO_PIECE)), "MV_EP e5xd6 with no recorded ep target");
 
   /* a knight to a non-attack square (manhattan 4) and to a same-colour square */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(0, 0), W_KNIGHT);  /* a1 */
-  place(&pos, sq_of(2, 0), W_KING);    /* c1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(0, 0), Piece::W_KNIGHT);  /* a1 */
+  place(&pos, sq_of(2, 0), Piece::W_KING);    /* c1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(0, 0, 4, 0), "knight a1->e1 (manhattan 4, not an attack)");
   check_reject(&pos, &st, mv(0, 0, 1, 1), "knight a1->b2 (same colour, not an attack)");
 
   /* blocked sliders: a blocker one square on, the target two squares away */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(0, 0), W_QUEEN);   /* a1 */
-  place(&pos, sq_of(0, 1), W_PAWN);    /* a2: on the a-file */
-  place(&pos, sq_of(2, 0), W_KING);    /* c1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(0, 0), Piece::W_QUEEN);   /* a1 */
+  place(&pos, sq_of(0, 1), Piece::W_PAWN);    /* a2: on the a-file */
+  place(&pos, sq_of(2, 0), Piece::W_KING);    /* c1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(0, 0, 0, 2), "queen a1->a3 blocked by the a2 pawn");
-  place(&pos, sq_of(0, 1), NO_PIECE);  /* clear the a-file pawn      */
-  place(&pos, sq_of(0, 0), W_BISHOP);  /* a1: a bishop               */
-  place(&pos, sq_of(1, 1), W_PAWN);    /* b2: on the a1-h8 diagonal  */
+  place(&pos, sq_of(0, 1), Piece::NO_PIECE);  /* clear the a-file pawn      */
+  place(&pos, sq_of(0, 0), Piece::W_BISHOP);  /* a1: a bishop               */
+  place(&pos, sq_of(1, 1), Piece::W_PAWN);    /* b2: on the a1-h8 diagonal  */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(0, 0, 2, 2), "bishop a1->c3 blocked by the b2 pawn");
-  place(&pos, sq_of(1, 1), NO_PIECE);  /* clear the diagonal pawn    */
-  place(&pos, sq_of(0, 0), W_ROOK);    /* a1: a rook                 */
-  place(&pos, sq_of(0, 1), W_PAWN);    /* a2: back on the a-file     */
+  place(&pos, sq_of(1, 1), Piece::NO_PIECE);  /* clear the diagonal pawn    */
+  place(&pos, sq_of(0, 0), Piece::W_ROOK);    /* a1: a rook                 */
+  place(&pos, sq_of(0, 1), Piece::W_PAWN);    /* a2: back on the a-file     */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(0, 0, 0, 2), "rook a1->a3 blocked by the a2 pawn");
 
   /* a king two squares away is not adjacent */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(4, 0), W_KING);    /* e1 */
-  place(&pos, sq_of(2, 7), B_KING);    /* c8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(4, 0), Piece::W_KING);    /* e1 */
+  place(&pos, sq_of(2, 7), Piece::B_KING);    /* c8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(4, 0, 4, 2), "king e1->e3 (two ranks away)");
 
   /* capturing the enemy king is never allowed */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(0, 0), W_QUEEN);   /* a1 */
-  place(&pos, sq_of(0, 2), B_KING);    /* a3: on the a-file */
-  place(&pos, sq_of(2, 0), W_KING);    /* c1 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(0, 0), Piece::W_QUEEN);   /* a1 */
+  place(&pos, sq_of(0, 2), Piece::B_KING);    /* a3: on the a-file */
+  place(&pos, sq_of(2, 0), Piece::W_KING);    /* c1 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(0, 0, 0, 2), "queen captures the enemy king");
 
   /* a pawn push into an occupied square */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(4, 1), W_PAWN);    /* e2 */
-  place(&pos, sq_of(4, 2), B_PAWN);    /* e3: in the way */
-  place(&pos, sq_of(0, 0), W_KING);    /* a1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(4, 1), Piece::W_PAWN);    /* e2 */
+  place(&pos, sq_of(4, 2), Piece::B_PAWN);    /* e3: in the way */
+  place(&pos, sq_of(0, 0), Piece::W_KING);    /* a1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(4, 1, 4, 2), "pawn push e2->e3 against an occupied square");
 
   /* a pawn cannot move backward */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(4, 3), W_PAWN);    /* e4 */
-  place(&pos, sq_of(0, 0), W_KING);    /* a1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(4, 3), Piece::W_PAWN);    /* e4 */
+  place(&pos, sq_of(0, 0), Piece::W_KING);    /* a1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(4, 3, 4, 2), "pawn backward e4->e3");
 
   /* a double push is only from the starting rank, and only with a clear path */
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(4, 2), W_PAWN);    /* e3: not a starting rank */
-  place(&pos, sq_of(0, 0), W_KING);    /* a1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(4, 2), Piece::W_PAWN);    /* e3: not a starting rank */
+  place(&pos, sq_of(0, 0), Piece::W_KING);    /* a1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(4, 2, 4, 4), "double push from the wrong rank (e3->e5)");
-  newpos(&pos, WHITE, 0, 0, 1);
-  place(&pos, sq_of(4, 1), W_PAWN);    /* e2 */
-  place(&pos, sq_of(4, 2), B_PAWN);    /* e3: occupied intermediate */
-  place(&pos, sq_of(0, 0), W_KING);    /* a1 */
-  place(&pos, sq_of(0, 7), B_KING);    /* a8 */
+  newpos(&pos, Color::WHITE, 0, 0, 1);
+  place(&pos, sq_of(4, 1), Piece::W_PAWN);    /* e2 */
+  place(&pos, sq_of(4, 2), Piece::B_PAWN);    /* e3: occupied intermediate */
+  place(&pos, sq_of(0, 0), Piece::W_KING);    /* a1 */
+  place(&pos, sq_of(0, 7), Piece::B_KING);    /* a8 */
   pos_rebuild(&pos);
   check_reject(&pos, &st, mv(4, 1, 4, 3), "double push e2->e4 with an occupied intermediate");
 

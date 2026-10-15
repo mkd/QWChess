@@ -14,7 +14,7 @@
  *
  * Documented convention (src/core/zobrist.hpp):
  *   key = (XOR over occupied squares of zobrist_piece(piece, square))
- *         ^ zobrist_side(side)          (WHITE -> 0, BLACK -> key)
+ *         ^ zobrist_side(side)          (Color::WHITE -> 0, Color::BLACK -> key)
  *         ^ zobrist_castling(rights)    (rights 0..15; 0 = no rights is a key)
  *         ^ (ep_file >= 0 ? zobrist_ep_file(ep_file) : 0)
  * Rule-50 and the repetition history are deliberately NOT part of the key.
@@ -27,7 +27,7 @@
 #include "test_util.hpp"
 
 /* Independent expected key values (see tools/zobrist_gen.py).
- * Piece rows 0,7,8,15 are NO_PIECE/unused slots: drawn to keep the PRNG stream
+ * Piece rows 0,7,8,15 are Piece::NO_PIECE/unused slots: drawn to keep the PRNG stream
  * aligned but excluded from any position key. Both colors are covered (W 1..6,
  * B 9..14) at the a1 (first square) and h8 (last square) anchors. */
 static const u64 P_A1[16]   = { 0x6E789E6AA1B965F4ull, 0x06C45D188009454Full, 0xF88BB8A8724C81ECull, 0x1B39896A51A8749Bull, 0x53CB9F0C747EA2EAull, 0x2C829ABE1F4532E1ull, 0xC584133AC916AB3Cull, 0x3EE5789041C98AC3ull, 0xF3B8488C368CB0A6ull, 0x657EECDD3CB13D09ull, 0xC2D326E0055BDEF6ull, 0x8621A03FE0BBDB7Bull, 0x8E1F7555983AA92Full, 0xB54E0F1600CC4D19ull, 0x84BB3F97971D80ABull, 0x7D29825C75521255ull };
@@ -43,8 +43,8 @@ static int t_keys(void) {
     QWC_EQ_U64(zobrist_piece((Piece)p, 0),  P_A1[p], "piece[a1]");
     QWC_EQ_U64(zobrist_piece((Piece)p, 63), P_H8[p], "piece[h8]");
   }
-  QWC_EQ_U64(zobrist_side(WHITE), 0,        "side white == 0");
-  QWC_EQ_U64(zobrist_side(BLACK), SIDE_BLACK, "side black");
+  QWC_EQ_U64(zobrist_side(Color::WHITE), 0,        "side white == 0");
+  QWC_EQ_U64(zobrist_side(Color::BLACK), SIDE_BLACK, "side black");
   for (int i = 0; i < 16; i++) QWC_EQ_U64(zobrist_castling((u8)i), CASTLE[i], "castling[i]");
   for (int f = 0; f < 8; f++)  QWC_EQ_U64(zobrist_ep_file(f),      EPFILE[f], "epfile[f]");
   /* Documented out-of-range guards (zobrist.hpp): must yield the identity 0. */
@@ -60,13 +60,13 @@ static int t_keys(void) {
  * must reproduce every value (no public-contract change). */
 static int t_reinit(void) {
   qwc_begin("zobrist.reinit");
-  u64 a1 = zobrist_piece(W_PAWN, 0), h8 = zobrist_piece(B_KING, 63);
-  u64 bl = zobrist_side(BLACK), c3 = zobrist_castling(3), e5 = zobrist_ep_file(5);
+  u64 a1 = zobrist_piece(Piece::W_PAWN, 0), h8 = zobrist_piece(Piece::B_KING, 63);
+  u64 bl = zobrist_side(Color::BLACK), c3 = zobrist_castling(3), e5 = zobrist_ep_file(5);
   zobrist_init();
   zobrist_init();
-  QWC_EQ_U64(zobrist_piece(W_PAWN, 0),  a1, "reinit piece[a1]");
-  QWC_EQ_U64(zobrist_piece(B_KING, 63), h8, "reinit piece[h8]");
-  QWC_EQ_U64(zobrist_side(BLACK),       bl, "reinit side");
+  QWC_EQ_U64(zobrist_piece(Piece::W_PAWN, 0),  a1, "reinit piece[a1]");
+  QWC_EQ_U64(zobrist_piece(Piece::B_KING, 63), h8, "reinit piece[h8]");
+  QWC_EQ_U64(zobrist_side(Color::BLACK),       bl, "reinit side");
   QWC_EQ_U64(zobrist_castling(3),       c3, "reinit castling");
   QWC_EQ_U64(zobrist_ep_file(5),        e5, "reinit epfile");
   return qwc_end();
@@ -80,10 +80,10 @@ static int t_reinit(void) {
  * "incremental" path under test. check_move() cross-checks the two and also
  * verifies state restoration (apply/unapply) and grounds the reference against
  * the production full compute. */
-typedef struct { u8 mailbox[64]; Color side; u8 cr; int ep_file; } TState;
+typedef struct { Piece mailbox[64]; Color side; u8 cr; int ep_file; } TState;
 
 /* A reversible board change. `pre`/`post` differ only on a promotion; `cap` is
- * the captured piece (NO_PIECE if none) at `cap_sq` (== to, except en-passant
+ * the captured piece (Piece::NO_PIECE if none) at `cap_sq` (== to, except en-passant
  * where it is the captured pawn's ACTUAL square). An optional second leg
  * (from2 != NO_SQUARE) models castling's rook. The _b / _a fields hold the
  * before / after metadata so unapply() restores the exact prior state. */
@@ -101,23 +101,23 @@ static u64 epkey(int f) { return (f >= 0 && f < FILE_NB) ? zobrist_ep_file(f) : 
 static u64 key_full(const TState *s) {
   u64 h = 0;
   for (int sq = 0; sq < SQ_NB; sq++)
-    if (s->mailbox[sq]) h ^= zobrist_piece((Piece)s->mailbox[sq], (Square)sq);
+    if (s->mailbox[sq] != Piece::NO_PIECE) h ^= zobrist_piece(s->mailbox[sq], (Square)sq);
   h ^= zobrist_side(s->side) ^ zobrist_castling(s->cr) ^ epkey(s->ep_file);
   return h;
 }
 
 static void apply_move(TState *s, const TMove *m) {
-  s->mailbox[m->from] = NO_PIECE;
-  if (m->cap) s->mailbox[m->cap_sq] = NO_PIECE;
+  s->mailbox[m->from] = Piece::NO_PIECE;
+  if (m->cap != Piece::NO_PIECE) s->mailbox[m->cap_sq] = Piece::NO_PIECE;
   s->mailbox[m->to] = m->post;
-  if (m->from2 != NO_SQUARE) { s->mailbox[m->from2] = NO_PIECE; s->mailbox[m->to2] = m->post2; }
+  if (m->from2 != NO_SQUARE) { s->mailbox[m->from2] = Piece::NO_PIECE; s->mailbox[m->to2] = m->post2; }
   s->side = m->side_a; s->cr = m->cr_a; s->ep_file = m->ep_a;
 }
 static void unapply_move(TState *s, const TMove *m) {
-  s->mailbox[m->to] = NO_PIECE;
+  s->mailbox[m->to] = Piece::NO_PIECE;
   s->mailbox[m->from] = m->pre;
-  if (m->cap) s->mailbox[m->cap_sq] = m->cap;
-  if (m->from2 != NO_SQUARE) { s->mailbox[m->to2] = NO_PIECE; s->mailbox[m->from2] = m->pre2; }
+  if (m->cap != Piece::NO_PIECE) s->mailbox[m->cap_sq] = m->cap;
+  if (m->from2 != NO_SQUARE) { s->mailbox[m->to2] = Piece::NO_PIECE; s->mailbox[m->from2] = m->pre2; }
   s->side = m->side_b; s->cr = m->cr_b; s->ep_file = m->ep_b;
 }
 static int states_equal(const TState *a, const TState *b) {
@@ -130,7 +130,7 @@ static int states_equal(const TState *a, const TState *b) {
  * square, not `to`. */
 static u64 move_delta(const TMove *m) {
   u64 d = zobrist_piece(m->pre, m->from) ^ zobrist_piece(m->post, m->to);
-  if (m->cap) d ^= zobrist_piece(m->cap, m->cap_sq);
+  if (m->cap != Piece::NO_PIECE) d ^= zobrist_piece(m->cap, m->cap_sq);
   if (m->from2 != NO_SQUARE) d ^= zobrist_piece(m->pre2, m->from2) ^ zobrist_piece(m->post2, m->to2);
   d ^= zobrist_side(m->side_b) ^ zobrist_side(m->side_a)
      ^ zobrist_castling(m->cr_b) ^ zobrist_castling(m->cr_a)
@@ -153,22 +153,22 @@ static void check_move(const char *name, const TState *b, const TState *a, const
 /* Standard initial position (16 pieces, both colors, all four rights). */
 static TState base(void) {
   TState s; std::memset(&s, 0, sizeof s);
-  const u8 wr[] = { W_ROOK, W_KNIGHT, W_BISHOP, W_QUEEN, W_KING, W_BISHOP, W_KNIGHT, W_ROOK };
-  const u8 br[] = { B_ROOK, B_KNIGHT, B_BISHOP, B_QUEEN, B_KING, B_BISHOP, B_KNIGHT, B_ROOK };
+  const Piece wr[] = { Piece::W_ROOK, Piece::W_KNIGHT, Piece::W_BISHOP, Piece::W_QUEEN, Piece::W_KING, Piece::W_BISHOP, Piece::W_KNIGHT, Piece::W_ROOK };
+  const Piece br[] = { Piece::B_ROOK, Piece::B_KNIGHT, Piece::B_BISHOP, Piece::B_QUEEN, Piece::B_KING, Piece::B_BISHOP, Piece::B_KNIGHT, Piece::B_ROOK };
   for (int f = 0; f < 8; f++) {
     s.mailbox[SQ(f, 0)] = wr[f];
-    s.mailbox[SQ(f, 1)] = W_PAWN;
-    s.mailbox[SQ(f, 6)] = B_PAWN;
+    s.mailbox[SQ(f, 1)] = Piece::W_PAWN;
+    s.mailbox[SQ(f, 6)] = Piece::B_PAWN;
     s.mailbox[SQ(f, 7)] = br[f];
   }
-  s.side = WHITE; s.cr = 15; s.ep_file = -1;
+  s.side = Color::WHITE; s.cr = 15; s.ep_file = -1;
   return s;
 }
 static TMove mv(Piece pre, Piece post, Square from, Square to, Piece cap, Square cap_sq,
                 Color sb, Color sa, u8 crb, u8 cra, int epb, int epa) {
   TMove m;
   m.pre = pre; m.post = post; m.from = from; m.to = to; m.cap = cap; m.cap_sq = cap_sq;
-  m.pre2 = NO_PIECE; m.post2 = NO_PIECE; m.from2 = NO_SQUARE; m.to2 = NO_SQUARE;
+  m.pre2 = Piece::NO_PIECE; m.post2 = Piece::NO_PIECE; m.from2 = NO_SQUARE; m.to2 = NO_SQUARE;
   m.side_b = sb; m.side_a = sa; m.cr_b = crb; m.cr_a = cra; m.ep_b = epb; m.ep_a = epa;
   return m;
 }
@@ -179,9 +179,9 @@ static TMove mv2(TMove m, Piece pre2, Piece post2, Square from2, Square to2) {
 /* Bare kings-only board (7th/8th ranks empty) so promotion fixtures are legal. */
 static TState kings(void) {
   TState s; std::memset(&s, 0, sizeof s);
-  s.mailbox[SQ(4,0)] = W_KING;  /* e1 */
-  s.mailbox[SQ(4,7)] = B_KING;  /* e8 */
-  s.side = WHITE; s.cr = 0; s.ep_file = -1;
+  s.mailbox[SQ(4,0)] = Piece::W_KING;  /* e1 */
+  s.mailbox[SQ(4,7)] = Piece::B_KING;  /* e8 */
+  s.side = Color::WHITE; s.cr = 0; s.ep_file = -1;
   return s;
 }
 
@@ -189,118 +189,118 @@ static int t_moves(void) {
   qwc_begin("zobrist.moves");
   {   /* F1: quiet knight (white) Ng1-f3 */
     TState b = base();
-    TState a = base(); a.mailbox[SQ(6,0)] = NO_PIECE; a.mailbox[SQ(5,2)] = W_KNIGHT; a.side = BLACK;
-    TMove m = mv(W_KNIGHT, W_KNIGHT, SQ(6,0), SQ(5,2), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 15, -1, -1);
+    TState a = base(); a.mailbox[SQ(6,0)] = Piece::NO_PIECE; a.mailbox[SQ(5,2)] = Piece::W_KNIGHT; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_KNIGHT, Piece::W_KNIGHT, SQ(6,0), SQ(5,2), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 15, -1, -1);
     check_move("quiet knight W g1f3", &b, &a, &m);
   }
   {   /* F2: quiet knight (black) Nb8-c6 */
-    TState b = base(); b.side = BLACK;
-    TState a = base(); a.mailbox[SQ(1,7)] = NO_PIECE; a.mailbox[SQ(2,5)] = B_KNIGHT; a.side = WHITE;
-    TMove m = mv(B_KNIGHT, B_KNIGHT, SQ(1,7), SQ(2,5), NO_PIECE, NO_SQUARE, BLACK, WHITE, 15, 15, -1, -1);
+    TState b = base(); b.side = Color::BLACK;
+    TState a = base(); a.mailbox[SQ(1,7)] = Piece::NO_PIECE; a.mailbox[SQ(2,5)] = Piece::B_KNIGHT; a.side = Color::WHITE;
+    TMove m = mv(Piece::B_KNIGHT, Piece::B_KNIGHT, SQ(1,7), SQ(2,5), Piece::NO_PIECE, NO_SQUARE, Color::BLACK, Color::WHITE, 15, 15, -1, -1);
     check_move("quiet knight B b8c6", &b, &a, &m);
   }
   {   /* F3: ordinary capture + side change, W Bf1xf3 */
-    TState b = base(); b.mailbox[SQ(5,2)] = B_PAWN;
-    TState a = base(); a.mailbox[SQ(5,0)] = NO_PIECE; a.mailbox[SQ(5,2)] = W_BISHOP; a.side = BLACK;
-    TMove m = mv(W_BISHOP, W_BISHOP, SQ(5,0), SQ(5,2), B_PAWN, SQ(5,2), WHITE, BLACK, 15, 15, -1, -1);
+    TState b = base(); b.mailbox[SQ(5,2)] = Piece::B_PAWN;
+    TState a = base(); a.mailbox[SQ(5,0)] = Piece::NO_PIECE; a.mailbox[SQ(5,2)] = Piece::W_BISHOP; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_BISHOP, Piece::W_BISHOP, SQ(5,0), SQ(5,2), Piece::B_PAWN, SQ(5,2), Color::WHITE, Color::BLACK, 15, 15, -1, -1);
     check_move("capture W Bf1xf3", &b, &a, &m);
   }
-  {   /* F4a: quiet promotion to QUEEN, a7-a8 */
-    TState b = kings(); b.mailbox[SQ(0,6)] = W_PAWN;
-    TState a = kings(); a.mailbox[SQ(0,6)] = NO_PIECE; a.mailbox[SQ(0,7)] = W_QUEEN; a.side = BLACK;
-    TMove m = mv(W_PAWN, W_QUEEN, SQ(0,6), SQ(0,7), NO_PIECE, NO_SQUARE, WHITE, BLACK, 0, 0, -1, -1);
+  {   /* F4a: quiet promotion to PieceType::QUEEN, a7-a8 */
+    TState b = kings(); b.mailbox[SQ(0,6)] = Piece::W_PAWN;
+    TState a = kings(); a.mailbox[SQ(0,6)] = Piece::NO_PIECE; a.mailbox[SQ(0,7)] = Piece::W_QUEEN; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_PAWN, Piece::W_QUEEN, SQ(0,6), SQ(0,7), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 0, 0, -1, -1);
     check_move("promo Q a8", &b, &a, &m);
   }
-  {   /* F4b: quiet promotion to ROOK, b7-b8 */
-    TState b = kings(); b.mailbox[SQ(1,6)] = W_PAWN;
-    TState a = kings(); a.mailbox[SQ(1,6)] = NO_PIECE; a.mailbox[SQ(1,7)] = W_ROOK; a.side = BLACK;
-    TMove m = mv(W_PAWN, W_ROOK, SQ(1,6), SQ(1,7), NO_PIECE, NO_SQUARE, WHITE, BLACK, 0, 0, -1, -1);
+  {   /* F4b: quiet promotion to PieceType::ROOK, b7-b8 */
+    TState b = kings(); b.mailbox[SQ(1,6)] = Piece::W_PAWN;
+    TState a = kings(); a.mailbox[SQ(1,6)] = Piece::NO_PIECE; a.mailbox[SQ(1,7)] = Piece::W_ROOK; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_PAWN, Piece::W_ROOK, SQ(1,6), SQ(1,7), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 0, 0, -1, -1);
     check_move("promo R b8", &b, &a, &m);
   }
-  {   /* F4c: quiet promotion to BISHOP, c7-c8 */
-    TState b = kings(); b.mailbox[SQ(2,6)] = W_PAWN;
-    TState a = kings(); a.mailbox[SQ(2,6)] = NO_PIECE; a.mailbox[SQ(2,7)] = W_BISHOP; a.side = BLACK;
-    TMove m = mv(W_PAWN, W_BISHOP, SQ(2,6), SQ(2,7), NO_PIECE, NO_SQUARE, WHITE, BLACK, 0, 0, -1, -1);
+  {   /* F4c: quiet promotion to PieceType::BISHOP, c7-c8 */
+    TState b = kings(); b.mailbox[SQ(2,6)] = Piece::W_PAWN;
+    TState a = kings(); a.mailbox[SQ(2,6)] = Piece::NO_PIECE; a.mailbox[SQ(2,7)] = Piece::W_BISHOP; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_PAWN, Piece::W_BISHOP, SQ(2,6), SQ(2,7), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 0, 0, -1, -1);
     check_move("promo B c8", &b, &a, &m);
   }
-  {   /* F4d: quiet promotion to KNIGHT, d7-d8 */
-    TState b = kings(); b.mailbox[SQ(3,6)] = W_PAWN;
-    TState a = kings(); a.mailbox[SQ(3,6)] = NO_PIECE; a.mailbox[SQ(3,7)] = W_KNIGHT; a.side = BLACK;
-    TMove m = mv(W_PAWN, W_KNIGHT, SQ(3,6), SQ(3,7), NO_PIECE, NO_SQUARE, WHITE, BLACK, 0, 0, -1, -1);
+  {   /* F4d: quiet promotion to PieceType::KNIGHT, d7-d8 */
+    TState b = kings(); b.mailbox[SQ(3,6)] = Piece::W_PAWN;
+    TState a = kings(); a.mailbox[SQ(3,6)] = Piece::NO_PIECE; a.mailbox[SQ(3,7)] = Piece::W_KNIGHT; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_PAWN, Piece::W_KNIGHT, SQ(3,6), SQ(3,7), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 0, 0, -1, -1);
     check_move("promo N d8", &b, &a, &m);
   }
   {   /* F4e: promotion capture a7xb8=Q (b8 holds a black knight) */
-    TState b = kings(); b.mailbox[SQ(0,6)] = W_PAWN; b.mailbox[SQ(1,7)] = B_KNIGHT;
-    TState a = kings(); a.mailbox[SQ(0,6)] = NO_PIECE; a.mailbox[SQ(1,7)] = W_QUEEN; a.side = BLACK;
-    TMove m = mv(W_PAWN, W_QUEEN, SQ(0,6), SQ(1,7), B_KNIGHT, SQ(1,7), WHITE, BLACK, 0, 0, -1, -1);
+    TState b = kings(); b.mailbox[SQ(0,6)] = Piece::W_PAWN; b.mailbox[SQ(1,7)] = Piece::B_KNIGHT;
+    TState a = kings(); a.mailbox[SQ(0,6)] = Piece::NO_PIECE; a.mailbox[SQ(1,7)] = Piece::W_QUEEN; a.side = Color::BLACK;
+    TMove m = mv(Piece::W_PAWN, Piece::W_QUEEN, SQ(0,6), SQ(1,7), Piece::B_KNIGHT, SQ(1,7), Color::WHITE, Color::BLACK, 0, 0, -1, -1);
     check_move("promo capture a7xb8=Q", &b, &a, &m);
   }
   {   /* F5: en passant exd6; the captured pawn is removed from its ACTUAL
          square (d5), not from `to` (e6). */
-    TState b = base(); b.mailbox[SQ(4,1)] = NO_PIECE; b.mailbox[SQ(4,4)] = W_PAWN;   /* e5 */
-    b.mailbox[SQ(3,6)] = NO_PIECE; b.mailbox[SQ(3,4)] = B_PAWN;                        /* d5 */
-    b.side = WHITE; b.ep_file = 3;                                                     /* ep file d */
-    TState a = base(); a.mailbox[SQ(4,1)] = NO_PIECE; a.mailbox[SQ(4,4)] = NO_PIECE;
-    a.mailbox[SQ(4,5)] = W_PAWN; a.mailbox[SQ(3,6)] = NO_PIECE; a.mailbox[SQ(3,4)] = NO_PIECE;
-    a.side = BLACK; a.ep_file = -1;
-    TMove m = mv(W_PAWN, W_PAWN, SQ(4,4), SQ(4,5), B_PAWN, SQ(3,4), WHITE, BLACK, 15, 15, 3, -1);
+    TState b = base(); b.mailbox[SQ(4,1)] = Piece::NO_PIECE; b.mailbox[SQ(4,4)] = Piece::W_PAWN;   /* e5 */
+    b.mailbox[SQ(3,6)] = Piece::NO_PIECE; b.mailbox[SQ(3,4)] = Piece::B_PAWN;                        /* d5 */
+    b.side = Color::WHITE; b.ep_file = 3;                                                     /* ep file d */
+    TState a = base(); a.mailbox[SQ(4,1)] = Piece::NO_PIECE; a.mailbox[SQ(4,4)] = Piece::NO_PIECE;
+    a.mailbox[SQ(4,5)] = Piece::W_PAWN; a.mailbox[SQ(3,6)] = Piece::NO_PIECE; a.mailbox[SQ(3,4)] = Piece::NO_PIECE;
+    a.side = Color::BLACK; a.ep_file = -1;
+    TMove m = mv(Piece::W_PAWN, Piece::W_PAWN, SQ(4,4), SQ(4,5), Piece::B_PAWN, SQ(3,4), Color::WHITE, Color::BLACK, 15, 15, 3, -1);
     check_move("en passant exd6", &b, &a, &m);
   }
   {   /* F6: castling O-O; king e1-g1 and rook h1-f1, both white rights lost. */
-    TState b = base(); b.mailbox[SQ(5,0)] = NO_PIECE; b.mailbox[SQ(6,0)] = NO_PIECE;  /* clear f1,g1 */
-    TState a = base(); a.mailbox[SQ(4,0)] = NO_PIECE; a.mailbox[SQ(6,0)] = W_KING;
-    a.mailbox[SQ(5,0)] = W_ROOK; a.mailbox[SQ(7,0)] = NO_PIECE; a.side = BLACK; a.cr = 12;
-    TMove m = mv2(mv(W_KING, W_KING, SQ(4,0), SQ(6,0), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 12, -1, -1),
-                  W_ROOK, W_ROOK, SQ(7,0), SQ(5,0));
+    TState b = base(); b.mailbox[SQ(5,0)] = Piece::NO_PIECE; b.mailbox[SQ(6,0)] = Piece::NO_PIECE;  /* clear f1,g1 */
+    TState a = base(); a.mailbox[SQ(4,0)] = Piece::NO_PIECE; a.mailbox[SQ(6,0)] = Piece::W_KING;
+    a.mailbox[SQ(5,0)] = Piece::W_ROOK; a.mailbox[SQ(7,0)] = Piece::NO_PIECE; a.side = Color::BLACK; a.cr = 12;
+    TMove m = mv2(mv(Piece::W_KING, Piece::W_KING, SQ(4,0), SQ(6,0), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 12, -1, -1),
+                  Piece::W_ROOK, Piece::W_ROOK, SQ(7,0), SQ(5,0));
     check_move("castling O-O", &b, &a, &m);
   }
   {   /* F7: rights lost when the king moves (not castling). */
-    TState b = base(); b.mailbox[SQ(4,1)] = NO_PIECE;   /* clear e2 so Ke1-e2 is possible */
-    TState a = base(); a.mailbox[SQ(4,0)] = NO_PIECE; a.mailbox[SQ(4,1)] = W_KING;
-    a.side = BLACK; a.cr = 12;
-    TMove m = mv(W_KING, W_KING, SQ(4,0), SQ(4,1), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 12, -1, -1);
+    TState b = base(); b.mailbox[SQ(4,1)] = Piece::NO_PIECE;   /* clear e2 so Ke1-e2 is possible */
+    TState a = base(); a.mailbox[SQ(4,0)] = Piece::NO_PIECE; a.mailbox[SQ(4,1)] = Piece::W_KING;
+    a.side = Color::BLACK; a.cr = 12;
+    TMove m = mv(Piece::W_KING, Piece::W_KING, SQ(4,0), SQ(4,1), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 12, -1, -1);
     check_move("king move loses both W rights", &b, &a, &m);
   }
   {   /* F8: rights lost when the queenside rook moves. */
-    TState b = base(); b.mailbox[SQ(0,1)] = NO_PIECE;   /* clear a2 so Ra1-a2 is possible */
-    TState a = base(); a.mailbox[SQ(0,0)] = NO_PIECE; a.mailbox[SQ(0,1)] = W_ROOK;
-    a.side = BLACK; a.cr = 13;
-    TMove m = mv(W_ROOK, W_ROOK, SQ(0,0), SQ(0,1), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 13, -1, -1);
+    TState b = base(); b.mailbox[SQ(0,1)] = Piece::NO_PIECE;   /* clear a2 so Ra1-a2 is possible */
+    TState a = base(); a.mailbox[SQ(0,0)] = Piece::NO_PIECE; a.mailbox[SQ(0,1)] = Piece::W_ROOK;
+    a.side = Color::BLACK; a.cr = 13;
+    TMove m = mv(Piece::W_ROOK, Piece::W_ROOK, SQ(0,0), SQ(0,1), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 13, -1, -1);
     check_move("rook move loses WQ", &b, &a, &m);
   }
   {   /* F8b: rights lost on a rook capture (a1 rook takes on a2). */
-    TState b = base(); b.mailbox[SQ(0,1)] = B_PAWN;     /* a black pawn sits on a2 */
-    TState a = base(); a.mailbox[SQ(0,0)] = NO_PIECE; a.mailbox[SQ(0,1)] = W_ROOK;
-    a.side = BLACK; a.cr = 13;
-    TMove m = mv(W_ROOK, W_ROOK, SQ(0,0), SQ(0,1), B_PAWN, SQ(0,1), WHITE, BLACK, 15, 13, -1, -1);
+    TState b = base(); b.mailbox[SQ(0,1)] = Piece::B_PAWN;     /* a black pawn sits on a2 */
+    TState a = base(); a.mailbox[SQ(0,0)] = Piece::NO_PIECE; a.mailbox[SQ(0,1)] = Piece::W_ROOK;
+    a.side = Color::BLACK; a.cr = 13;
+    TMove m = mv(Piece::W_ROOK, Piece::W_ROOK, SQ(0,0), SQ(0,1), Piece::B_PAWN, SQ(0,1), Color::WHITE, Color::BLACK, 15, 13, -1, -1);
     check_move("rook capture loses WQ", &b, &a, &m);
   }
   {   /* F9: en-passant target created by a double push. */
     TState b = base();
-    TState a = base(); a.mailbox[SQ(4,1)] = NO_PIECE; a.mailbox[SQ(4,3)] = W_PAWN;   /* e2 -> e4 */
-    a.side = BLACK; a.ep_file = 4;
-    TMove m = mv(W_PAWN, W_PAWN, SQ(4,1), SQ(4,3), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 15, -1, 4);
+    TState a = base(); a.mailbox[SQ(4,1)] = Piece::NO_PIECE; a.mailbox[SQ(4,3)] = Piece::W_PAWN;   /* e2 -> e4 */
+    a.side = Color::BLACK; a.ep_file = 4;
+    TMove m = mv(Piece::W_PAWN, Piece::W_PAWN, SQ(4,1), SQ(4,3), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 15, -1, 4);
     check_move("double push creates ep target", &b, &a, &m);
   }
   {   /* F10: en-passant target expires on the opponent's quiet reply. */
-    TState b = base(); b.side = BLACK; b.ep_file = 4;
-    TState a = base(); a.mailbox[SQ(1,7)] = NO_PIECE; a.mailbox[SQ(2,5)] = B_KNIGHT;
-    a.side = WHITE; a.ep_file = -1;
-    TMove m = mv(B_KNIGHT, B_KNIGHT, SQ(1,7), SQ(2,5), NO_PIECE, NO_SQUARE, BLACK, WHITE, 15, 15, 4, -1);
+    TState b = base(); b.side = Color::BLACK; b.ep_file = 4;
+    TState a = base(); a.mailbox[SQ(1,7)] = Piece::NO_PIECE; a.mailbox[SQ(2,5)] = Piece::B_KNIGHT;
+    a.side = Color::WHITE; a.ep_file = -1;
+    TMove m = mv(Piece::B_KNIGHT, Piece::B_KNIGHT, SQ(1,7), SQ(2,5), Piece::NO_PIECE, NO_SQUARE, Color::BLACK, Color::WHITE, 15, 15, 4, -1);
     check_move("quiet reply expires ep target", &b, &a, &m);
   }
   {   /* F11: a new double push replaces the existing ep target. */
     TState b = base(); b.ep_file = 4;
-    TState a = base(); a.mailbox[SQ(2,1)] = NO_PIECE; a.mailbox[SQ(2,3)] = W_PAWN;   /* c2 -> c4 */
-    a.side = BLACK; a.ep_file = 2;
-    TMove m = mv(W_PAWN, W_PAWN, SQ(2,1), SQ(2,3), NO_PIECE, NO_SQUARE, WHITE, BLACK, 15, 15, 4, 2);
+    TState a = base(); a.mailbox[SQ(2,1)] = Piece::NO_PIECE; a.mailbox[SQ(2,3)] = Piece::W_PAWN;   /* c2 -> c4 */
+    a.side = Color::BLACK; a.ep_file = 2;
+    TMove m = mv(Piece::W_PAWN, Piece::W_PAWN, SQ(2,1), SQ(2,3), Piece::NO_PIECE, NO_SQUARE, Color::WHITE, Color::BLACK, 15, 15, 4, 2);
     check_move("double push replaces ep target", &b, &a, &m);
   }
   {   /* F12: combination -- a capture that also expires the ep target and flips side. */
-    TState b = base(); b.mailbox[SQ(3,4)] = B_PAWN; b.side = WHITE; b.ep_file = 4;
-    TState a = base(); a.mailbox[SQ(3,0)] = NO_PIECE; a.mailbox[SQ(3,4)] = W_QUEEN;
-    a.side = BLACK; a.ep_file = -1;
-    TMove m = mv(W_QUEEN, W_QUEEN, SQ(3,0), SQ(3,4), B_PAWN, SQ(3,4), WHITE, BLACK, 15, 15, 4, -1);
+    TState b = base(); b.mailbox[SQ(3,4)] = Piece::B_PAWN; b.side = Color::WHITE; b.ep_file = 4;
+    TState a = base(); a.mailbox[SQ(3,0)] = Piece::NO_PIECE; a.mailbox[SQ(3,4)] = Piece::W_QUEEN;
+    a.side = Color::BLACK; a.ep_file = -1;
+    TMove m = mv(Piece::W_QUEEN, Piece::W_QUEEN, SQ(3,0), SQ(3,4), Piece::B_PAWN, SQ(3,4), Color::WHITE, Color::BLACK, 15, 15, 4, -1);
     check_move("capture + ep expire + side", &b, &a, &m);
   }
   return qwc_end();

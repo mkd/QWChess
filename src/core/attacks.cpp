@@ -45,7 +45,7 @@ void attacks_init(void) {
       }
 
       for (int c = 0; c < 2; c++) {
-        int dr = (c == WHITE) ? 1 : -1;
+        int dr = (c == to_under(Color::WHITE)) ? 1 : -1;
         u64 p = 0;
         for (int df = -1; df <= 1; df += 2) {
           int nf = f + df, nr = r + dr;
@@ -79,7 +79,7 @@ void attacks_init(void) {
 
 static void ensure(void) { if (!g_inited) attacks_init(); }
 
-u64 pawn_attacks(Color c, Square sq)   { ensure(); return (sq < SQ_NB && c < 2) ? g_pawn[c][sq] : 0; }
+u64 pawn_attacks(Color c, Square sq)   { ensure(); return (sq < SQ_NB && to_under(c) < 2) ? g_pawn[to_under(c)][sq] : 0; }
 u64 knight_attacks(Square sq)          { ensure(); return sq < SQ_NB ? g_knight[sq] : 0; }
 u64 king_attacks(Square sq)            { ensure(); return sq < SQ_NB ? g_king[sq] : 0; }
 

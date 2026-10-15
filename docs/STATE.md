@@ -1,70 +1,61 @@
 # QwenChess — State
 
-**Milestone:** M1 (board correctness) is the functional track; this checkpoint is
-the **CPP20-1 language migration**, now complete and verified. All shipped sources
-are now **C++20** (`.cpp`/`.hpp`, `g++`, `build/cpp20/`). The M1 board work (T001–T005)
-is preserved as-is; the migration is a language-only refactor that keeps the compact
-representation, behavior and test evidence identical.
-**Baseline (last verified commit):** `93d3c77` (T005 cp1: non-castling pseudo-legal
-movegen) — the pre-migration **C17** baseline. This checkpoint builds on it.
-Git identity `mkd`/`claudiomkd@gmail.com`.
+**Milestone:** the **CPP20 modernization workstream** (a language refactor, not a
+functionality milestone). This checkpoint is **CPP20-2 (scoped enums)**, now complete
+and verified. All domain values are fixed-width **scoped** enums with `to_under` at the
+value/byte boundary; `M1` board work (T001–T005) is preserved — behavior and test
+evidence are identical, only the types changed.
+**Baseline (last verified commit):** `a05f3bd` (CPP20-1: C17 → C++20 language
+migration). This checkpoint builds on it. Git identity `mkd`/`claudiomkd@gmail.com`.
 
-## This checkpoint commits (CPP20-1 — C17 → C++20 language migration)
-- **Renames:** every engine/core/platform/position/movegen `.c`→`.cpp` and `.h`→`.hpp`;
-  all project includes updated. **`Makefile`:** `CC`→`CXX`, `CFLAGS`→`CXXFLAGS`,
-  `-std=c17`→`-std=c++20`, `CXX=g++` (clang absent on this host; `CXX=clang++` remains
-  the opt-in), dropped `-Wstrict-prototypes`/`-Wmissing-prototypes` (C-only), added
-  `-Wno-implicit-fallthrough` (C++20 `[[fallthrough]]` idiom) and `-Wimplicit-fallthrough`,
-  routed objects to `build/cpp20/<config>/`, renamed `check-c17`→`check-cpp20`
-  (`-std=c++20 -pedantic-errors`).
-- **Language cleanup (all 23 translation units):** `_Static_assert`→`static_assert`,
-  `NULL`→`nullptr`, C headers→C++ standard headers, fixed-width `typedef`→`using`
-  with `std::` qualification, `typedef struct … x;`→`struct …;`, `std::`-qualified
-  `memcpy`/`memset`/`printf`/etc., the `Position`/`StateInfo`/`MoveDelta`/`SquareEdit`
-  aggregates kept **plain** (no constructors), `POS_HM_MAX`/`FEN_BUF_SIZE`/`BB_FULL`→
-  `constexpr`, bitboard count/scan switched to **`<bit>`** (`std::popcount`/
-  `countr_zero`/`countl_zero`) with the forced portable fallback retained, the clock
-  modernized to **`std::chrono::steady_clock`**, and the five enum/non-enum ternary
-  warnings fixed at the representation boundary (explicit sentinel casts).
-- **Docs:** AGENTS.md flipped to C++20 (g++/CXXFLAGS/check-cpp20/`build/cpp20/` + a
-  C++20-conventions section); PLAN.md adds the CPP20 workstream; ARCHITECTURE/README
-  no longer describe the codebase as C17.
+## This checkpoint commits (CPP20-2 — scoped enums with explicit underlying types)
+- **`types.hpp`:** `PieceType`, `Piece`, `Color` become `enum class X : u8` and
+  `MoveFlag` becomes `enum class MoveFlag : u32` (replacing CPP20-1's
+  `using X = u8` alias + separate plain value-enum). The `*_NB` counts (`8`/`16`/`2`)
+  move to `constexpr int` — a scoped enum may only name real domain values. Every
+  constant keeps its exact numeric value (verified by the `static_assert`s, now
+  `std::is_enum_v<…>` + `to_under(…)`). Added `to_under<E>` (the single documented
+  typed→raw boundary, via `std::underlying_type_t` — C++11, not C++23
+  `std::to_underlying`) and `piece_color`/`piece_type` helpers on top of it.
+  **`Square` stays the one-byte `u8` alias** + `enum SquareSentinel { NO_SQUARE = 64 }`:
+  squares are 0..63 (computed by `square_of`), with no per-square enumerators, so there
+  is nothing to scope. `square_of` is `constexpr` over the `Square`/`u8` domain.
+- **Source** (`position`, `state`, `fen`, `movegen`, `zobrist`, `attacks`): every
+  value/byte/table-index/raw-bit boundary re-expressed with `to_under`/`static_cast`/
+  the `(Piece)`/`(Color)`/`(u8)` representation casts; `Piece mailbox[]`, `Color`,
+  `Square` struct fields and API params are typed. No chess-rule logic changed.
+- **Tests:** the existing `QWC_*` harness auto-converts a scoped-enum operand
+  (`qwc_as_int`/`qwc_as_u64`) so raw-value fixtures are untouched; the raw-bit
+  fixtures, expected values, and per-bit move-encoding contracts are unchanged.
+- **`Makefile`:** added the previously-missing `$(MAKEUNMAKE_TEST_OBJ:.o=.d)` to the
+  `DEPS` line (wires the makeunmake test into dependency tracking, like every other
+  test). Pre-existing uncommitted fix, included here for a coherent tree.
 
-## Checks (this host, re-verified after the conversion)
+## Checks (this host, GCC/g++ — re-verified this session)
 - `make check-cpp20` → **23 files**, no non-C++20 constructs. **(exit 0)**
-- `make` (release) → builds, **0 warnings**, no `-Wstrict-prototypes`/C-only errors. **(exit 0)**
-- `make test` (release) → **15/15** binaries pass, 184 PASS lines, 0 fail. **(exit 0)**
-- `make debug` + `make test` → **15/15** pass, 0 fail. **(exit 0)**
-- Struct size/alignment **unchanged** vs the C baseline: Position 248/8, StateInfo 48/8,
-  MoveDelta 20/4, SquareEdit 3/1 (verified with a C++ size probe).
-- **Portable-bit path** (`QWC_FORCE_PORTABLE_BITS=1`) → exercised and green (same
-  15/15 class of results as the `<bit>` path).
-- **`make test-sanitize` — host-limited, not a code defect:** the ordinary target
-  aborts at ASan startup (`ASan runtime does not come first in initial library list`)
-  because `/etc/ld.so.preload` injects a setuid non-dpkg library ahead of `libasan`
-  (same root cause as T004). **Alternate launch** `LD_PRELOAD=$(g++ -print-file-name=libasan.so)`
-  → re-verify 15/15 under ASan+UBSan before committing (see Blockers).
+- `make clean && make CONFIG=release` → **0 errors, 0 warnings**
+  (`-Wconversion -Wextra -Wall -Wshadow -Wwrite-strings` → no narrowing/implicit conv).
+- `make test CONFIG=release` → **15/15** binaries, **184 PASS groups, 0 fail**
+  (**1,145,555 checks, 0 failed**). **(exit 0)**
+- `make test CONFIG=debug` and `make test CONFIG=sanitize` → **15/15, 184 PASS, 0
+  fail**; the sanitize tree runs clean (no ASan/UBSan runtime reports). **(exit 0)**
+- **Size/alignment contract HELD** (measured with a throwaway probe): Position 248/8,
+  StateInfo 48/8, MoveDelta 20/4, SquareEdit 3/1; `sizeof` Piece/Color/PieceType/Square
+  all 1, MoveFlag 4 (not struct-stored). Unchanged vs the CPP20-1/C baseline.
 
 ## Blockers / open
-- **Sanitizer normal target is runner-limited on this host** (env, not build): use the
-  documented `LD_PRELOAD` alternate launch; re-ran to confirm 15/15 green. Does not
-  block CPP20-2.
-- **Clang is not installed** here (`clang++` absent); only GCC/g++ was available. The
-  cross-compiler Clang build must be verified on a Clang-capable host (carried to CPP20-3).
-- `reference/` SF19 checkout (M3 oracle) and the match runner (M5) are not made; neither
-  blocks CPP20-2.
+- **Clang is not installed** on this host (`clang++` absent); only GCC/g++ was
+  verified. The cross-compiler Clang build (opt-in `CXX=clang++`) must be checked on a
+  Clang-capable host — carried to **CPP20-3**'s multi-arch validation.
+- `reference/` SF19 checkout (M3 oracle) and the match runner (M5) are not made;
+  neither blocks CPP20-3.
 
 ## Exactly one next task
-**CPP20-2 — scoped enums with explicit underlying types.** Convert `Color`,
-`PieceType` and `Piece` (and the `MoveFlag` values where clean) to fixed-width scoped
-enums, preserving every numeric value, `ALL_PIECES`/`NO_*` sentinels and all static
-asserts; verify no narrowing and the size/alignment contract. M1 board work resumes at
-**T005 cp2** afterward.
-
-**T005 cp2 (corrected, next M1 task):** own-king safety → legal move generation. From
-the cp1 pseudo-legal set, drop every move that leaves the own king attacked (a move
-attacks the king iff it reaches the king square from its own destination); when in check,
-restrict to check-escapes (king moves, captures of the checking piece, block moves).
-This is a **pure correctness filter** — SEE-based *ordering/pruning* is a later **search
-strength** feature (M5), not part of legal-move generation. Expose the `mg.boundary`
-cases as legal. No castling yet (cp3); the perft harness (cp4) is the M1 exit.
+**CPP20-3 — storage modernization + interface cleanup + multi-arch validation.**
+Adopt `std::array` for the fixed-size arrays and references/pointers for output
+parameters (and `constexpr`/`operator==` only where justified); replace
+`std::numeric_limits`/`INT64_MAX`-style macros; keep the plain-aggregate + ownership
+contracts. Validate the GCC build here and the Clang build on a Clang-capable host
+(both green incl. `check-cpp20`); report AArch64/RV64 support separately — do not
+claim untested architecture support. M1 board work resumes at **T005 cp2** after the
+CPP20 tasks.

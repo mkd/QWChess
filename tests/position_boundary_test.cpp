@@ -62,9 +62,9 @@ static int t_piece_codes(void) {
     if ((code >= 1 && code <= 6) || (code >= 9 && code <= 14)) continue;
     Position p;
     pos_reset(&p);
-    p.mailbox[0] = W_KING;
-    p.mailbox[63] = B_KING;
-    p.mailbox[17] = (u8)code;
+    p.mailbox[0] = Piece::W_KING;
+    p.mailbox[63] = Piece::B_KING;
+    p.mailbox[17] = (Piece)code;
     pos_rebuild(&p); /* must stay within arrays even for 16..255 */
     Position before = p;
     const char *why = nullptr;
@@ -94,13 +94,13 @@ static int t_ep_metadata(void) {
   for (int i = 0; i < 9; i++) {
     Position p = base;
     switch (i) {
-      case 0: p.mailbox[35] = NO_PIECE; break; /* captured pawn missing */
-      case 1: p.mailbox[35] = B_KNIGHT; break; /* captured piece not a pawn */
-      case 2: p.mailbox[43] = W_KNIGHT; break; /* target not empty */
-      case 3: p.mailbox[51] = B_KNIGHT; break; /* double-push origin occupied */
+      case 0: p.mailbox[35] = Piece::NO_PIECE; break; /* captured pawn missing */
+      case 1: p.mailbox[35] = Piece::B_KNIGHT; break; /* captured piece not a pawn */
+      case 2: p.mailbox[43] = Piece::W_KNIGHT; break; /* target not empty */
+      case 3: p.mailbox[51] = Piece::B_KNIGHT; break; /* double-push origin occupied */
       case 4: p.halfmove = 1; break;
       case 5: p.ep_sq = 35; break;            /* wrong target rank */
-      case 6: p.side = 2; break;
+      case 6: p.side = (Color)2; break;
       case 7: p.ep_sq = 65; break;
       case 8: p.ep_sq = 255; break;
     }

@@ -35,12 +35,12 @@ static u64 mg_dest_mask(const Position *pos, Square from, PieceType type,
                         u64 friendly, u64 enemy_king_bb) {
   u64 att;
   switch (type) {
-    case KNIGHT: att = knight_attacks(from); break;
-    case BISHOP: att = bishop_attacks(from, pos->occ); break;
-    case ROOK:   att = rook_attacks(from, pos->occ); break;
-    case QUEEN:  att = queen_attacks(from, pos->occ); break;
-    case KING:   att = king_attacks(from); break;
-    default:     att = 0; break;   /* PAWN / NO_PIECE_TYPE: handled by the pawn path */
+    case PieceType::KNIGHT: att = knight_attacks(from); break;
+    case PieceType::BISHOP: att = bishop_attacks(from, pos->occ); break;
+    case PieceType::ROOK:   att = rook_attacks(from, pos->occ); break;
+    case PieceType::QUEEN:  att = queen_attacks(from, pos->occ); break;
+    case PieceType::KING:   att = king_attacks(from); break;
+    default:     att = 0; break;   /* PieceType::PAWN / PieceType::NO_PIECE_TYPE: handled by the pawn path */
   }
   return att & ~friendly & ~enemy_king_bb;
 }
@@ -62,8 +62,8 @@ static int mg_gen_pawn(const Position *pos, Square from, Move *out, size_t capac
     const Square push = square_of(f, tr);
     if ((pos->occ & square_bb(push)) == 0) {   /* target empty */
       if (tr == promo_r) {
-        for (u32 pt = KNIGHT; pt <= QUEEN; pt++)
-          if (!mg_append(out, capacity, n, make_move(from, push, (u32)MV_PROMO, pt)))
+        for (u32 pt = to_under(PieceType::KNIGHT); pt <= to_under(PieceType::QUEEN); pt++)
+          if (!mg_append(out, capacity, n, make_move(from, push, (u32)MoveFlag::MV_PROMO, pt)))
             return 0;
       } else {
         if (!mg_append(out, capacity, n, make_move(from, push, 0u, 0u)))
@@ -94,8 +94,8 @@ static int mg_gen_pawn(const Position *pos, Square from, Move *out, size_t capac
     if (to_bb == enemy_king_bb)
       continue;                              /* never capture the king */
     if (tr == promo_r) {
-      for (u32 pt = KNIGHT; pt <= QUEEN; pt++)
-        if (!mg_append(out, capacity, n, make_move(from, to, (u32)MV_PROMO, pt)))
+      for (u32 pt = to_under(PieceType::KNIGHT); pt <= to_under(PieceType::QUEEN); pt++)
+        if (!mg_append(out, capacity, n, make_move(from, to, (u32)MoveFlag::MV_PROMO, pt)))
           return 0;
     } else {
       if (!mg_append(out, capacity, n, make_move(from, to, 0u, 0u)))
@@ -115,21 +115,21 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, size_t capacity,
 
   size_t n = 0;
   const Color   side    = pos->side;
-  const u64     friendly = pos->byColor[side];
-  const u64     enemy    = pos->byColor[1 - side];
+  const u64     friendly = pos->byColor[to_under(side)];
+  const u64     enemy    = pos->byColor[1 - to_under(side)];
   const u64     enemy_king_bb =
-      square_bb((side == WHITE) ? pos->bKingSq : pos->wKingSq);
-  const int  dir     = (side == WHITE) ? 8  : -8;
-  const int  start_r = (side == WHITE) ? 1  : 6;   /* 2nd / 7th rank */
-  const int  promo_r = (side == WHITE) ? 7  : 0;   /* 8th / 1st rank */
-  const u64  side_pawns = pos->byPiece[(side == WHITE) ? W_PAWN : B_PAWN];
+      square_bb((side == Color::WHITE) ? pos->bKingSq : pos->wKingSq);
+  const int  dir     = (side == Color::WHITE) ? 8  : -8;
+  const int  start_r = (side == Color::WHITE) ? 1  : 6;   /* 2nd / 7th rank */
+  const int  promo_r = (side == Color::WHITE) ? 7  : 0;   /* 8th / 1st rank */
+  const u64  side_pawns = pos->byPiece[(side == Color::WHITE) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN)];
 
   /* Ordinary pieces (knight/bishop/rook/queen/king) + pawns, in a fixed,
    * deterministic square order. */
   for (u64 bits = friendly; bits; bits = pop_lsb(bits)) {
     const Square    from = (Square)lsb_index(bits);
-    const PieceType type = (PieceType)(pos->mailbox[from] & 0x7u);
-    if (type == PAWN) {
+    const PieceType type = piece_type(pos->mailbox[from]);
+    if (type == PieceType::PAWN) {
       if (!mg_gen_pawn(pos, from, out, capacity, &n,
                        dir, start_r, promo_r, enemy, enemy_king_bb)) {
         if (count) *count = 0;
@@ -155,11 +155,11 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, size_t capacity,
   if (pos->ep_sq != NO_SQUARE) {
     const int ef = file_of(pos->ep_sq);
     const int er = rank_of(pos->ep_sq);
-    const int captor_r = er + (side == WHITE ? -1 : 1);   /* one rank behind */
+    const int captor_r = er + (side == Color::WHITE ? -1 : 1);   /* one rank behind */
     if (captor_r >= 0 && captor_r < RANK_NB) {
       const u64  cap_bb   = square_bb(square_of(ef, captor_r));  /* the taken pawn */
       const u64  landing  = square_bb(pos->ep_sq);
-      const int  enemy_pawn = (side == WHITE) ? B_PAWN : W_PAWN;
+      const int  enemy_pawn = (side == Color::WHITE) ? to_under(Piece::B_PAWN) : to_under(Piece::W_PAWN);
       const int  enemy_present = (pos->byPiece[enemy_pawn] & cap_bb) != 0;
       const int  landing_empty = (pos->occ & landing) == 0;
       if (enemy_present && landing_empty) {
@@ -170,7 +170,7 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, size_t capacity,
           const Square captor = square_of(cf, captor_r);
           if ((side_pawns & square_bb(captor)) == 0)
             continue;                              /* needs an adjacent friendly captor */
-          if (!mg_append(out, capacity, &n, make_move(captor, pos->ep_sq, (u32)MV_EP, 0u))) {
+          if (!mg_append(out, capacity, &n, make_move(captor, pos->ep_sq, (u32)MoveFlag::MV_EP, 0u))) {
             if (count) *count = 0;
             return 0;
           }

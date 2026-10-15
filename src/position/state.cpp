@@ -42,10 +42,10 @@
 #include <cstddef>
 
 /* ---- small piece helpers ------------------------------------------------- */
+/* piece_color / piece_type come from core/types.hpp (the shared Piece API). */
 
-static Color piece_color(Piece p)   { return (p >= B_PAWN) ? BLACK : WHITE; }
 static Color other(Color c)         { return (Color)(1 - (int)c); }
-static int   piece_is_pawn(Piece p) { return (p & 7) == PAWN; }
+static int   piece_is_pawn(Piece p) { return piece_type(p) == PieceType::PAWN; }
 
 /* ---- shared incremental derived-cache maintenance ------------------------
  * make() and unmake() both update the derived caches square-by-square through
@@ -55,15 +55,15 @@ static int   piece_is_pawn(Piece p) { return (p & 7) == PAWN; }
 
 /* Place piece `p` on `sq` (callers clear the square first when replacing). */
 static void pos_add_piece(Position *pos, Square sq, Piece p) {
-  if (p == NO_PIECE || sq >= SQ_NB)
+  if (p == Piece::NO_PIECE || sq >= SQ_NB)
     return;
   u64 b = square_bb(sq);
   pos->mailbox[sq] = p;
-  pos->byPiece[p] |= b;
-  pos->byColor[p >= B_PAWN] |= b;
+  pos->byPiece[to_under(p)] |= b;
+  pos->byColor[p >= Piece::B_PAWN] |= b;
   pos->occ |= b;
-  if (p == W_KING) pos->wKingSq = sq;
-  else if (p == B_KING) pos->bKingSq = sq;
+  if (p == Piece::W_KING) pos->wKingSq = sq;
+  else if (p == Piece::B_KING) pos->bKingSq = sq;
 }
 
 /* Remove whatever piece is on `sq`, if any. */
@@ -71,23 +71,23 @@ static void pos_remove_piece(Position *pos, Square sq) {
   if (sq >= SQ_NB)
     return;
   Piece p = pos->mailbox[sq];
-  if (p == NO_PIECE)
+  if (p == Piece::NO_PIECE)
     return;
   u64 b = square_bb(sq);
-  pos->mailbox[sq] = NO_PIECE;
-  pos->byPiece[p] &= ~b;
-  pos->byColor[p >= B_PAWN] &= ~b;
+  pos->mailbox[sq] = Piece::NO_PIECE;
+  pos->byPiece[to_under(p)] &= ~b;
+  pos->byColor[p >= Piece::B_PAWN] &= ~b;
   pos->occ &= ~b;
-  if (p == W_KING && pos->wKingSq == sq) pos->wKingSq = NO_SQUARE;
-  else if (p == B_KING && pos->bKingSq == sq) pos->bKingSq = NO_SQUARE;
+  if (p == Piece::W_KING && pos->wKingSq == sq) pos->wKingSq = NO_SQUARE;
+  else if (p == Piece::B_KING && pos->bKingSq == sq) pos->bKingSq = NO_SQUARE;
 }
 
 /* Recompute both king squares from the piece bitboards. Run after every
  * make/unmake so the cached squares are exact no matter the transient edit order
  * (a consistent position always has exactly one king per color). */
 static void pos_update_kings(Position *pos) {
-  pos->wKingSq = pos->byPiece[W_KING] ? (Square)lsb_index(pos->byPiece[W_KING]) : (Square)NO_SQUARE;
-  pos->bKingSq = pos->byPiece[B_KING] ? (Square)lsb_index(pos->byPiece[B_KING]) : (Square)NO_SQUARE;
+  pos->wKingSq = pos->byPiece[to_under(Piece::W_KING)] ? (Square)lsb_index(pos->byPiece[to_under(Piece::W_KING)]) : (Square)NO_SQUARE;
+  pos->bKingSq = pos->byPiece[to_under(Piece::B_KING)] ? (Square)lsb_index(pos->byPiece[to_under(Piece::B_KING)]) : (Square)NO_SQUARE;
 }
 
 /* Apply / revert one square edit (before -> after, or after -> before). */
@@ -104,22 +104,22 @@ static void revert_edit(Position *pos, const SquareEdit *e) {
  * A king move drops both of its rights, a home-rook move drops that rook's
  * right, and capturing an enemy home rook drops that (enemy) right. Unrelated
  * rights are preserved. cr_clear keeps the arithmetic in u8 to stay conversion-
- * clean. Castling (checkpoint 3) reuses this with a NO_PIECE `dest`: the mover
+ * clean. Castling (checkpoint 3) reuses this with a Piece::NO_PIECE `dest`: the mover
  * is the king, so the king-move rule clears BOTH of its rights (the intended
  * result); the friendly rook at the encoded destination is deliberately not
  * passed as `dest`, so it is never mistaken for a captured enemy rook. */
 static u8 cr_clear(u8 cr, int mask) { return (u8)cr & (u8)~mask; }
 
 static u8 cr_after_move(u8 cr, Square from, Square to, Piece mover, Piece dest) {
-  if (mover == W_KING)      cr = cr_clear(cr, CR_WK | CR_WQ);
-  else if (mover == B_KING) cr = cr_clear(cr, CR_BK | CR_BQ);
+  if (mover == Piece::W_KING)      cr = cr_clear(cr, CR_WK | CR_WQ);
+  else if (mover == Piece::B_KING) cr = cr_clear(cr, CR_BK | CR_BQ);
   /* the rook that left a home square forfeits its right */
   if (from == square_of(0, 0))      cr = cr_clear(cr, CR_WQ);   /* a1 */
   else if (from == square_of(7, 0)) cr = cr_clear(cr, CR_WK);   /* h1 */
   else if (from == square_of(0, 7)) cr = cr_clear(cr, CR_BQ);   /* a8 */
   else if (from == square_of(7, 7)) cr = cr_clear(cr, CR_BK);   /* h8 */
   /* capturing an enemy rook on a home square erases that enemy right */
-  if (dest != NO_PIECE) {
+  if (dest != Piece::NO_PIECE) {
     if (to == square_of(0, 0))      cr = cr_clear(cr, CR_WQ);
     else if (to == square_of(7, 0)) cr = cr_clear(cr, CR_WK);
     else if (to == square_of(0, 7)) cr = cr_clear(cr, CR_BQ);
@@ -144,16 +144,16 @@ static int is_double_push(Color side, Square from, Square to) {
   if ((from & 7) != (to & 7))
     return 0;                                  /* different file: not a push */
   int rf = rank_of(from);
-  int start = (side == WHITE) ? RANK_2 : RANK_7;
+  int start = (side == Color::WHITE) ? RANK_2 : RANK_7;
   if (rf != start)
     return 0;                                  /* not on its starting rank */
   int rt = rank_of(to);
-  return (rt == rf + ((side == WHITE) ? 2 : -2));
+  return (rt == rf + ((side == Color::WHITE) ? 2 : -2));
 }
 
 static Square passed_square(Color side, Square from) {
   int f = file_of(from);
-  int r = rank_of(from) + ((side == WHITE) ? 1 : -1);
+  int r = rank_of(from) + ((side == Color::WHITE) ? 1 : -1);
   return square_of((Square)f, (Square)r);
 }
 
@@ -167,41 +167,41 @@ static int geometry_ok(const Position *pos, Square from, Square to, Piece mover,
   u64 occ = pos->occ;
   int rf = rank_of(from), rt = rank_of(to);
   int ff = file_of(from),  tf = file_of(to);
-  int is_cap = (dest != NO_PIECE);
+  int is_cap = (dest != Piece::NO_PIECE);
 
-  switch ((int)(mover & 7)) {
-    case PAWN: {
-      int dir = (pos->side == WHITE) ? 1 : -1;   /* one rank forward */
+  switch (piece_type(mover)) {
+    case PieceType::PAWN: {
+      int dir = (pos->side == Color::WHITE) ? 1 : -1;   /* one rank forward */
       int fwd = rf + dir;
-      if (tf == ff && rt == fwd && dest == NO_PIECE)
+      if (tf == ff && rt == fwd && dest == Piece::NO_PIECE)
         return 1;                                /* single push */
-      int start = (pos->side == WHITE) ? RANK_2 : RANK_7;
-      if (tf == ff && rt == rf + 2 * dir && rf == start && dest == NO_PIECE &&
-          pos->mailbox[square_of((Square)ff, (Square)fwd)] == NO_PIECE)
+      int start = (pos->side == Color::WHITE) ? RANK_2 : RANK_7;
+      if (tf == ff && rt == rf + 2 * dir && rf == start && dest == Piece::NO_PIECE &&
+          pos->mailbox[square_of((Square)ff, (Square)fwd)] == Piece::NO_PIECE)
         return 1;                                /* double push */
       if (rt == fwd && (tf == ff - 1 || tf == ff + 1) && is_cap)
         return 1;                                /* ordinary capture */
       return 0;
     }
-    case KNIGHT: return (knight_attacks(from) & square_bb(to)) != 0;
-    case BISHOP: return (bishop_attacks(from, occ) & square_bb(to)) != 0;
-    case ROOK:   return (rook_attacks(from, occ) & square_bb(to)) != 0;
-    case QUEEN:  return (queen_attacks(from, occ) & square_bb(to)) != 0;
-    case KING:   return (king_attacks(from) & square_bb(to)) != 0;
-    default:     return 0;                       /* NO_PIECE cannot move (source validated) */
+    case PieceType::KNIGHT: return (knight_attacks(from) & square_bb(to)) != 0;
+    case PieceType::BISHOP: return (bishop_attacks(from, occ) & square_bb(to)) != 0;
+    case PieceType::ROOK:   return (rook_attacks(from, occ) & square_bb(to)) != 0;
+    case PieceType::QUEEN:  return (queen_attacks(from, occ) & square_bb(to)) != 0;
+    case PieceType::KING:   return (king_attacks(from) & square_bb(to)) != 0;
+    default:     return 0;                       /* Piece::NO_PIECE cannot move (source validated) */
   }
 }
 
-/* A pawn whose destination is the final rank MUST promote. An MV_PROMO-flagged
+/* A pawn whose destination is the final rank MUST promote. An MoveFlag::MV_PROMO-flagged
  * move is handled by promo_supported (checkpoint 4); this catches a pawn move
- * that reaches the last rank WITHOUT the MV_PROMO flag, which is invalid. */
+ * that reaches the last rank WITHOUT the MoveFlag::MV_PROMO flag, which is invalid. */
 static int reaches_last_rank(Color side, Square to) {
   int rt = rank_of(to);
-  return (side == WHITE) ? (rt == RANK_8) : (rt == RANK_1);
+  return (side == Color::WHITE) ? (rt == RANK_8) : (rt == RANK_1);
 }
 
 /* Orthodox castling (checkpoint 3): structural application preconditions.
- * Validates, before any write, in order: the flag is EXACTLY MV_CASTLE (a mixed
+ * Validates, before any write, in order: the flag is EXACTLY MoveFlag::MV_CASTLE (a mixed
  * EP|CASTLE / PROMO|CASTLE is rejected on that bit) with a zero promotion
  * payload; the mover is the friendly king on its orthodox home square (e-file,
  * the 1st rank for white / 8th for black); the encoded destination is that
@@ -220,39 +220,39 @@ static int reaches_last_rank(Color side, Square to) {
  * reversed; T005 must check all three king squares when it generates castling. */
 static int castle_supported(const Position *pos, Move m, Square from, Square to, const char **why) {
   if (why) *why = nullptr;
-  if (move_flags(m) != MV_CASTLE) { if (why) *why = "castling move carries extra flags (mixed)"; return 0; }
+  if (move_flags(m) != to_under(MoveFlag::MV_CASTLE)) { if (why) *why = "castling move carries extra flags (mixed)"; return 0; }
   if (move_promo(m) != 0)         { if (why) *why = "promotion payload on a castling move"; return 0; }
   Color side = pos->side;
-  Piece want_king = (side == WHITE) ? W_KING : B_KING;
+  Piece want_king = (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING;
   if (pos->mailbox[from] != want_king) { if (why) *why = "castling source is not the friendly king"; return 0; }
-  int home_rank = (side == WHITE) ? RANK_1 : RANK_8;   /* 1st rank white, 8th black */
+  int home_rank = (side == Color::WHITE) ? RANK_1 : RANK_8;   /* 1st rank white, 8th black */
   if (rank_of(from) != home_rank)    { if (why) *why = "castling origin is not on the home rank"; return 0; }
   if (file_of(from) != FILE_E)       { if (why) *why = "castling origin is not the e-file"; return 0; }
   if (rank_of(to) != home_rank)      { if (why) *why = "castling destination is not on the home rank"; return 0; }
   int kingside = (file_of(to) == FILE_H);
   if (!kingside && file_of(to) != FILE_A) { if (why) *why = "castling destination is not a rook origin (non-orthodox)"; return 0; }
-  Piece want_rook = (side == WHITE) ? W_ROOK : B_ROOK;
+  Piece want_rook = (side == Color::WHITE) ? Piece::W_ROOK : Piece::B_ROOK;
   if (pos->mailbox[to] != want_rook) { if (why) *why = "castling destination does not hold the friendly rook"; return 0; }
-  u8 want_cr = (side == WHITE) ? (kingside ? CR_WK : CR_WQ) : (kingside ? CR_BK : CR_BQ);
+  u8 want_cr = (side == Color::WHITE) ? (kingside ? CR_WK : CR_WQ) : (kingside ? CR_BK : CR_BQ);
   if ((pos->cr & want_cr) == 0)     { if (why) *why = "the corresponding castling right is missing"; return 0; }
   if (kingside) {
-    if (pos->mailbox[square_of(FILE_F, (Square)home_rank)] != NO_PIECE) { if (why) *why = "kingside f-square is not empty"; return 0; }
-    if (pos->mailbox[square_of(FILE_G, (Square)home_rank)] != NO_PIECE) { if (why) *why = "kingside g-square is not empty"; return 0; }
+    if (pos->mailbox[square_of(FILE_F, (Square)home_rank)] != Piece::NO_PIECE) { if (why) *why = "kingside f-square is not empty"; return 0; }
+    if (pos->mailbox[square_of(FILE_G, (Square)home_rank)] != Piece::NO_PIECE) { if (why) *why = "kingside g-square is not empty"; return 0; }
   } else {
-    if (pos->mailbox[square_of(FILE_B, (Square)home_rank)] != NO_PIECE) { if (why) *why = "queenside b-square is not empty"; return 0; }
-    if (pos->mailbox[square_of(FILE_C, (Square)home_rank)] != NO_PIECE) { if (why) *why = "queenside c-square is not empty"; return 0; }
-    if (pos->mailbox[square_of(FILE_D, (Square)home_rank)] != NO_PIECE) { if (why) *why = "queenside d-square is not empty"; return 0; }
+    if (pos->mailbox[square_of(FILE_B, (Square)home_rank)] != Piece::NO_PIECE) { if (why) *why = "queenside b-square is not empty"; return 0; }
+    if (pos->mailbox[square_of(FILE_C, (Square)home_rank)] != Piece::NO_PIECE) { if (why) *why = "queenside c-square is not empty"; return 0; }
+    if (pos->mailbox[square_of(FILE_D, (Square)home_rank)] != Piece::NO_PIECE) { if (why) *why = "queenside d-square is not empty"; return 0; }
   }
   /* A castle is a quiet move (no pawn, no capture): the halfmove clock increments,
    * so a maxed clock would overflow; a black castle increments the fullmove number.
    * A white castle leaves the fullmove unchanged, so a maxed white fullmove is fine. */
   if (pos->halfmove == UINT16_MAX)              { if (why) *why = "halfmove clock would overflow"; return 0; }
-  if (side == BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
+  if (side == Color::BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
   return 1;
 }
 
 /* En-passant capture (checkpoint 2): pseudo-legal application preconditions.
- * Validates, before any write: the flag is EXACTLY MV_EP (no mixed EP|PROMO /
+ * Validates, before any write: the flag is EXACTLY MoveFlag::MV_EP (no mixed EP|PROMO /
  * EP|CASTLE) with a zero promotion payload; the move targets the RECORDED ep
  * square; the recorded record is a structurally valid double push (correct rank
  * for the side, an empty destination, the enemy pawn on the just-pushed square,
@@ -266,42 +266,42 @@ static int castle_supported(const Position *pos, Move m, Square from, Square to,
  * captor's structurally valid capture is still applied and reversed. */
 static int ep_supported(const Position *pos, Move m, Square from, Square to, const char **why) {
   if (why) *why = nullptr;
-  if (move_flags(m) != MV_EP)    { if (why) *why = "EP move carries extra flags (mixed)"; return 0; }
+  if (move_flags(m) != to_under(MoveFlag::MV_EP))    { if (why) *why = "EP move carries extra flags (mixed)"; return 0; }
   if (move_promo(m) != 0)        { if (why) *why = "promotion payload on an EP move"; return 0; }
   Square ep = pos->ep_sq;
   if (to != ep)                  { if (why) *why = "EP move does not target the recorded ep square"; return 0; }
   if (ep >= SQ_NB)               { if (why) *why = "no recorded en-passant target"; return 0; }
   if (!pos_ep_is_valid_meta(pos)) { if (why) *why = "malformed en-passant record"; return 0; }
   Color  side = pos->side;
-  Piece  own_pawn = (side == WHITE) ? W_PAWN : B_PAWN;
+  Piece  own_pawn = (side == Color::WHITE) ? Piece::W_PAWN : Piece::B_PAWN;
   if (pos->mailbox[from] != own_pawn) { if (why) *why = "EP captor is not the friendly pawn"; return 0; }
   int rf = rank_of(from), rt = rank_of(to);
-  int dir = (side == WHITE) ? 1 : -1;                    /* one rank forward */
+  int dir = (side == Color::WHITE) ? 1 : -1;                    /* one rank forward */
   if (rt != rf + dir)                     { if (why) *why = "EP capture rank is not one forward"; return 0; }
-  if (rt != ((side == WHITE) ? RANK_6 : RANK_3)) { if (why) *why = "EP capture target is not on the capture rank"; return 0; }
+  if (rt != ((side == Color::WHITE) ? RANK_6 : RANK_3)) { if (why) *why = "EP capture target is not on the capture rank"; return 0; }
   int ff = file_of(from);
   if (file_of(to) != ff - 1 && file_of(to) != ff + 1) { if (why) *why = "EP capture file is not one diagonal"; return 0; }
   /* the captured pawn sits one rank toward the captor on the target's file */
-  int cs = (side == WHITE) ? (int)to - 8 : (int)to + 8;
+  int cs = (side == Color::WHITE) ? (int)to - 8 : (int)to + 8;
   if (cs < 0 || cs >= SQ_NB)             { if (why) *why = "captured square out of range"; return 0; }
-  Piece enemy_pawn = (side == WHITE) ? B_PAWN : W_PAWN;
+  Piece enemy_pawn = (side == Color::WHITE) ? Piece::B_PAWN : Piece::W_PAWN;
   if (pos->mailbox[cs] != enemy_pawn)    { if (why) *why = "no enemy pawn on the capture square"; return 0; }
   /* EP is a pawn move (and a capture): the clock resets to 0, so no halfmove
    * overflow; a black move increments the fullmove number, which must fit. */
-  if (side == BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
+  if (side == Color::BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
   return 1;
 }
 
 /* Promotion / underpromotion (checkpoint 4): pseudo-legal application
  * preconditions. Validates, before any write, in order: the flag is EXACTLY
- * MV_PROMO (a mixed EP|PROMO / CASTLE|PROMO is rejected on that bit; such a
+ * MoveFlag::MV_PROMO (a mixed EP|PROMO / CASTLE|PROMO is rejected on that bit; such a
  * combination is actually routed to the EP or castling validator first, which
- * rejects it there); the promo payload is a real promotion target (KNIGHT..QUEEN
- * -- 0, PAWN, KING and 7 are rejected; the encoder's value is used, never
+ * rejects it there); the promo payload is a real promotion target (PieceType::KNIGHT..PieceType::QUEEN
+ * -- 0, PieceType::PAWN, PieceType::KING and 7 are rejected; the encoder's value is used, never
  * defaulted to queen); the mover is the friendly pawn on its penultimate rank
  * (white 7th / black 2nd); the destination is one rank further forward (the
  * final rank); and the move is a same-file push onto an empty square, or a
- * one-file diagonal onto an enemy NON-KING piece -- a diagonal to an empty
+ * one-file diagonal onto an enemy NON-PieceType::KING piece -- a diagonal to an empty
  * square, a straight push onto an occupied square, a friendly victim, a king
  * victim, a file wrap, and a backward / two-rank / wrong-rank displacement are
  * all rejected. A promo resets the halfmove clock to 0, so no halfmove overflow
@@ -314,30 +314,30 @@ static int ep_supported(const Position *pos, Move m, Square from, Square to, con
  * that type already exist. [FIDE Laws 3.7.3.3-3.7.3.5] */
 static int promo_supported(const Position *pos, Move m, Square from, Square to, const char **why) {
   if (why) *why = nullptr;
-  if (move_flags(m) != MV_PROMO)    { if (why) *why = "promotion move carries extra flags (mixed)"; return 0; }
+  if (move_flags(m) != to_under(MoveFlag::MV_PROMO))    { if (why) *why = "promotion move carries extra flags (mixed)"; return 0; }
   u32 pt = move_promo(m);
-  if (pt < (u32)KNIGHT || pt > (u32)QUEEN) { if (why) *why = "promotion target is not a legal piece type"; return 0; }
+  if (pt < (u32)PieceType::KNIGHT || pt > (u32)PieceType::QUEEN) { if (why) *why = "promotion target is not a legal piece type"; return 0; }
   Color side = pos->side;
-  Piece own_pawn = (side == WHITE) ? W_PAWN : B_PAWN;
+  Piece own_pawn = (side == Color::WHITE) ? Piece::W_PAWN : Piece::B_PAWN;
   if (pos->mailbox[from] != own_pawn) { if (why) *why = "promotion source is not the friendly pawn"; return 0; }
   int rf = rank_of(from), rt = rank_of(to);
-  int dir = (side == WHITE) ? 1 : -1;                     /* one rank forward */
-  int penult = (side == WHITE) ? RANK_7 : RANK_2;        /* the rank before the final */
+  int dir = (side == Color::WHITE) ? 1 : -1;                     /* one rank forward */
+  int penult = (side == Color::WHITE) ? RANK_7 : RANK_2;        /* the rank before the final */
   if (rf != penult)                 { if (why) *why = "promotion origin is not on the penultimate rank"; return 0; }
   if (rt != penult + dir)           { if (why) *why = "promotion target is not the final rank"; return 0; }
   int ff = file_of(from);
   Piece dest = pos->mailbox[to];
   if (file_of(to) == ff) {
-    if (dest != NO_PIECE)          { if (why) *why = "straight promotion onto an occupied square"; return 0; }
+    if (dest != Piece::NO_PIECE)          { if (why) *why = "straight promotion onto an occupied square"; return 0; }
   } else if (file_of(to) == ff - 1 || file_of(to) == ff + 1) {
-    if (dest == NO_PIECE)              { if (why) *why = "diagonal promotion onto an empty square"; return 0; }
+    if (dest == Piece::NO_PIECE)              { if (why) *why = "diagonal promotion onto an empty square"; return 0; }
     if (piece_color(dest) == side)     { if (why) *why = "diagonal promotion captures a friendly piece"; return 0; }
-    if (dest == W_KING || dest == B_KING) { if (why) *why = "a king cannot be captured"; return 0; }
+    if (dest == Piece::W_KING || dest == Piece::B_KING) { if (why) *why = "a king cannot be captured"; return 0; }
   } else {
     if (why) *why = "promotion displacement is not a push or a single diagonal";
     return 0;
   }
-  if (side == BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
+  if (side == Color::BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
   return 1;
 }
 
@@ -352,44 +352,44 @@ static int move_supported(const Position *pos, Move m, const char **why) {
   if (!move_repr_is_valid(m))               { if (why) *why = "reserved bits 19..31 set"; return 0; }
   Square from = move_from(m), to = move_to(m);
   if (from == to)                           { if (why) *why = "from == to"; return 0; }
-  /* Castling is supported (checkpoint 3): route an MV_CASTLE-flagged move to the
+  /* Castling is supported (checkpoint 3): route an MoveFlag::MV_CASTLE-flagged move to the
    * structural validator. It is checked before the ordinary destination/capture
-   * checks because the encoded destination holds the friendly ROOK (which those
+   * checks because the encoded destination holds the friendly PieceType::ROOK (which those
    * checks would reject as an own piece); the validator itself requires the flag
-   * to be exactly MV_CASTLE, a zero payload, the friendly king/rook, the right,
+   * to be exactly MoveFlag::MV_CASTLE, a zero payload, the friendly king/rook, the right,
    * and an empty path. */
   if (is_castle(m))
     return castle_supported(pos, m, from, to, why);
   /* En-passant is supported (checkpoint 2): route an EP-flagged move to the EP
-   * validator, which requires the flag to be exactly MV_EP and a zero payload. */
+   * validator, which requires the flag to be exactly MoveFlag::MV_EP and a zero payload. */
   if (is_ep(m))
     return ep_supported(pos, m, from, to, why);
-  /* Promotion is supported (checkpoint 4): route an MV_PROMO-flagged move to the
-   * promo validator, which requires the flag to be exactly MV_PROMO, a legal
-   * promo PieceType (KNIGHT..QUEEN), a friendly pawn one rank forward to the
+  /* Promotion is supported (checkpoint 4): route an MoveFlag::MV_PROMO-flagged move to the
+   * promo validator, which requires the flag to be exactly MoveFlag::MV_PROMO, a legal
+   * promo PieceType (PieceType::KNIGHT..PieceType::QUEEN), a friendly pawn one rank forward to the
    * final rank, and the push/diagonal geometry above. */
   if (is_promotion(m))
     return promo_supported(pos, m, from, to, why);
   if (move_promo(m) != 0)                   { if (why) *why = "promotion data on an ordinary move"; return 0; }
 
   Piece mover = pos->mailbox[from];
-  if (mover == NO_PIECE)                    { if (why) *why = "source square is empty"; return 0; }
+  if (mover == Piece::NO_PIECE)                    { if (why) *why = "source square is empty"; return 0; }
   if (piece_color(mover) != pos->side)      { if (why) *why = "source piece is not the side to move"; return 0; }
   Piece dest = pos->mailbox[to];
-  if (dest != NO_PIECE && piece_color(dest) == pos->side)
+  if (dest != Piece::NO_PIECE && piece_color(dest) == pos->side)
                                              { if (why) *why = "destination holds an own piece"; return 0; }
-  if (dest == W_KING || dest == B_KING)     { if (why) *why = "a king cannot be captured"; return 0; }
+  if (dest == Piece::W_KING || dest == Piece::B_KING)     { if (why) *why = "a king cannot be captured"; return 0; }
 
   if (!geometry_ok(pos, from, to, mover, dest)) { if (why) *why = "invalid piece path"; return 0; }
-  /* A plain (non-MV_PROMO) pawn move that reaches the last rank must promote;
-   * without the flag it is invalid. (MV_PROMO moves were routed to promo_supported
+  /* A plain (non-MoveFlag::MV_PROMO) pawn move that reaches the last rank must promote;
+   * without the flag it is invalid. (MoveFlag::MV_PROMO moves were routed to promo_supported
    * above, so they never reach this check.) */
   if (piece_is_pawn(mover) && reaches_last_rank(pos->side, to))
                                     { if (why) *why = "pawn reaches the last rank without the promotion flag"; return 0; }
 
-  int is_reset = piece_is_pawn(mover) || (dest != NO_PIECE);
+  int is_reset = piece_is_pawn(mover) || (dest != Piece::NO_PIECE);
   if (!is_reset && pos->halfmove == UINT16_MAX) { if (why) *why = "halfmove clock would overflow"; return 0; }
-  if (pos->side == BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
+  if (pos->side == Color::BLACK && pos->fullmove == UINT16_MAX) { if (why) *why = "fullmove number would overflow"; return 0; }
   return 1;
 }
 
@@ -407,7 +407,7 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
 
   Square from = move_from(m), to = move_to(m);
   Piece mover = pos->mailbox[from];
-  Piece dest  = pos->mailbox[to];        /* NO_PIECE for quiet/EP; the rook for a castle */
+  Piece dest  = pos->mailbox[to];        /* Piece::NO_PIECE for quiet/EP; the rook for a castle */
   Color side = pos->side;                /* the mover's color (before the flip) */
   int is_ep_mv = is_ep(m);
   int is_castle_mv = is_castle(m);
@@ -415,7 +415,7 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
   /* A castle is a quiet move (not a capture): its encoded destination holds the
    * friendly rook, so exclude that from is_cap. For EP the destination is empty
    * (is_cap 0) and the clock resets via the pawn flag instead. */
-  int is_cap = (dest != NO_PIECE) && !is_castle_mv;
+  int is_cap = (dest != Piece::NO_PIECE) && !is_castle_mv;
   int is_pawn_mv = piece_is_pawn(mover);
 
   /* record the before-state + the bounded board delta in the undo record. The
@@ -423,7 +423,7 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
    * chain is pure bookkeeping -- it does not change the move itself). */
   state->prev         = pos->history;
   state->prev_key      = pos->key;
-  state->prev_side     = (u8)side;
+  state->prev_side     = side;
   state->prev_cr       = pos->cr;
   state->prev_ep       = pos->ep_sq;
   state->prev_halfmove = pos->halfmove;
@@ -444,10 +444,10 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
     Piece king = mover;
     Piece rook = dest;
     state->delta.edit_count = 4;
-    state->delta.edits[0].sq = from;                    state->delta.edits[0].before = king;   state->delta.edits[0].after = NO_PIECE;  /* king origin */
-    state->delta.edits[1].sq = to;                      state->delta.edits[1].before = rook;   state->delta.edits[1].after = NO_PIECE;  /* rook origin */
-    state->delta.edits[2].sq = square_of(kf, kr);       state->delta.edits[2].before = NO_PIECE; state->delta.edits[2].after = king;   /* king dest */
-    state->delta.edits[3].sq = square_of(rf, kr);       state->delta.edits[3].before = NO_PIECE; state->delta.edits[3].after = rook;   /* rook dest */
+    state->delta.edits[0].sq = from;                    state->delta.edits[0].before = king;   state->delta.edits[0].after = Piece::NO_PIECE;  /* king origin */
+    state->delta.edits[1].sq = to;                      state->delta.edits[1].before = rook;   state->delta.edits[1].after = Piece::NO_PIECE;  /* rook origin */
+    state->delta.edits[2].sq = square_of(kf, kr);       state->delta.edits[2].before = Piece::NO_PIECE; state->delta.edits[2].after = king;   /* king dest */
+    state->delta.edits[3].sq = square_of(rf, kr);       state->delta.edits[3].before = Piece::NO_PIECE; state->delta.edits[3].after = rook;   /* rook dest */
   } else if (is_ep_mv) {
     /* En-passant capture: three distinct squares change. The captor leaves its
      * origin; the captured enemy pawn (one rank toward the captor, on the
@@ -455,28 +455,28 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
      * target. The captured square is validated by ep_supported; here it is
      * derived the same way (signed, then narrowed -- `to` is a validated 6-bit
      * board square, so to-8 / to+8 stay in the board for a capture on ranks 3/6). */
-    Square victim = (Square)((side == WHITE) ? (int)to - 8 : (int)to + 8);
-    Piece enemy_pawn = (side == WHITE) ? B_PAWN : W_PAWN;
+    Square victim = (Square)((side == Color::WHITE) ? (int)to - 8 : (int)to + 8);
+    Piece enemy_pawn = (side == Color::WHITE) ? Piece::B_PAWN : Piece::W_PAWN;
     state->delta.edit_count = 3;
-    state->delta.edits[0].sq = from;   state->delta.edits[0].before = mover;      state->delta.edits[0].after = NO_PIECE;
-    state->delta.edits[1].sq = victim; state->delta.edits[1].before = enemy_pawn; state->delta.edits[1].after = NO_PIECE;
-    state->delta.edits[2].sq = to;     state->delta.edits[2].before = NO_PIECE;   state->delta.edits[2].after = mover;
+    state->delta.edits[0].sq = from;   state->delta.edits[0].before = mover;      state->delta.edits[0].after = Piece::NO_PIECE;
+    state->delta.edits[1].sq = victim; state->delta.edits[1].before = enemy_pawn; state->delta.edits[1].after = Piece::NO_PIECE;
+    state->delta.edits[2].sq = to;     state->delta.edits[2].before = Piece::NO_PIECE;   state->delta.edits[2].after = mover;
   } else if (is_promo_mv) {
     /* Promotion / underpromotion: TWO distinct squares change. The pawn leaves its
      * origin; the destination (empty for a straight promo, the victim for a
      * capture-promo) receives the promoted piece of the mover's color. The promo
-     * payload is a legal PieceType (KNIGHT..QUEEN), so the board piece is
+     * payload is a legal PieceType (PieceType::KNIGHT..PieceType::QUEEN), so the board piece is
      * payload + 8*side. The destination already held the victim (or was empty),
      * so no third edit is needed: a capture-promo replaces the victim in place. */
-    Piece promoted = (Piece)(move_promo(m) + (side == BLACK ? 8 : 0));
+    Piece promoted = (Piece)(move_promo(m) + (side == Color::BLACK ? 8 : 0));
     state->delta.edit_count = 2;
-    state->delta.edits[0].sq = from; state->delta.edits[0].before = mover; state->delta.edits[0].after = NO_PIECE;
+    state->delta.edits[0].sq = from; state->delta.edits[0].before = mover; state->delta.edits[0].after = Piece::NO_PIECE;
     state->delta.edits[1].sq = to;   state->delta.edits[1].before = dest;  state->delta.edits[1].after = promoted;
   } else {
     /* Ordinary move (quiet or capture): origin loses the piece, destination
-     * gains it (replacing whatever was there, NO_PIECE for a quiet move). */
+     * gains it (replacing whatever was there, Piece::NO_PIECE for a quiet move). */
     state->delta.edit_count = 2;
-    state->delta.edits[0].sq = from; state->delta.edits[0].before = mover; state->delta.edits[0].after = NO_PIECE;
+    state->delta.edits[0].sq = from; state->delta.edits[0].before = mover; state->delta.edits[0].after = Piece::NO_PIECE;
     state->delta.edits[1].sq = to;   state->delta.edits[1].before = dest;  state->delta.edits[1].after = mover;
   }
 
@@ -488,9 +488,9 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
     apply_edit(pos, &state->delta.edits[i]);
   pos_update_kings(pos);
   /* Castling clears BOTH of the moving side's rights (the mover is the king). Pass
-   * NO_PIECE as the `dest` for a castle so the friendly rook at the encoded
+   * Piece::NO_PIECE as the `dest` for a castle so the friendly rook at the encoded
    * destination is never mistaken for a captured enemy rook. */
-  pos->cr = cr_after_move(pos->cr, from, to, mover, is_castle_mv ? (Piece)NO_PIECE : dest);
+  pos->cr = cr_after_move(pos->cr, from, to, mover, is_castle_mv ? (Piece)Piece::NO_PIECE : dest);
   /* A pawn's double push records the passed square; every other move -- incl.
    * castling (never a push) and, crucially, a non-pawn slider that happens to
    * travel two ranks forward on its own file (is_double_push is geometry-only,
@@ -502,7 +502,7 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
    * increments for black only. */
   int nhm = (is_pawn_mv || is_cap) ? 0 : (int)pos->halfmove + 1;  /* validated <= 65535 */
   pos->halfmove = (HalfMoveClock)nhm;
-  int nfm = (side == BLACK) ? (int)pos->fullmove + 1 : (int)pos->fullmove;
+  int nfm = (side == Color::BLACK) ? (int)pos->fullmove + 1 : (int)pos->fullmove;
   pos->fullmove = (FullMoveNumber)nfm;
   pos->side = other(side);
 
@@ -510,10 +510,10 @@ int pos_make_move(Position *pos, StateInfo *state, Move m) {
   u64 key = state->prev_key;
   for (int i = 0; i < state->delta.edit_count; i++) {
     const SquareEdit *e = &state->delta.edits[i];
-    if (e->before != NO_PIECE) key ^= zobrist_piece(e->before, e->sq);
-    if (e->after  != NO_PIECE) key ^= zobrist_piece(e->after,  e->sq);
+    if (e->before != Piece::NO_PIECE) key ^= zobrist_piece(e->before, e->sq);
+    if (e->after  != Piece::NO_PIECE) key ^= zobrist_piece(e->after,  e->sq);
   }
-  key ^= zobrist_side((Color)state->prev_side) ^ zobrist_side(pos->side);
+  key ^= zobrist_side(state->prev_side) ^ zobrist_side(pos->side);
   key ^= zobrist_castling(state->prev_cr) ^ zobrist_castling(pos->cr);
   int new_ep_file = pos_canon_ep_file(pos);   /* canonical ep of the AFTER position */
   key ^= (old_ep_file >= 0 ? zobrist_ep_file(old_ep_file) : 0);
@@ -543,7 +543,7 @@ void pos_unmake_move(Position *pos, StateInfo *state) {
   pos->ep_sq     = state->prev_ep;
   pos->halfmove  = state->prev_halfmove;
   pos->fullmove  = state->prev_fullmove;
-  pos->side      = (Color)state->prev_side;
+  pos->side      = state->prev_side;
   pos->key       = state->prev_key;
   /* Undo the history push: restore the earlier head (the record's own `prev`
    * link). This makes the repetition count (pos_repetition_count) come back to
@@ -575,7 +575,7 @@ int pos_make_null_move(Position *pos, StateInfo *state) {
    * the record as a null. */
   state->prev          = pos->history;   /* link into the history chain (LIFO) */
   state->prev_key      = pos->key;
-  state->prev_side     = (u8)pos->side;
+  state->prev_side     = pos->side;
   state->prev_cr       = pos->cr;
   state->prev_ep       = pos->ep_sq;
   state->prev_halfmove = pos->halfmove;  /* preserved: a null neither advances nor resets it */
@@ -597,7 +597,7 @@ int pos_make_null_move(Position *pos, StateInfo *state) {
    * side toggles and the old canonical EP contribution is removed (a null leaves
    * no new EP). This equals a from-scratch rebuild of the result. */
   u64 key = state->prev_key;
-  key ^= zobrist_side((Color)state->prev_side) ^ zobrist_side(pos->side);
+  key ^= zobrist_side(state->prev_side) ^ zobrist_side(pos->side);
   if (old_ep_file >= 0)
     key ^= zobrist_ep_file(old_ep_file);
   pos->key = key;

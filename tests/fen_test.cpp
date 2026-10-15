@@ -47,12 +47,12 @@ static int pos_equal(const Position *a, const Position *b) {
 static void pos_mirror(const Position *src, Position *dst) {
   std::memset(dst->mailbox, 0, SQ_NB);
   for (int s = 0; s < SQ_NB; s++) {
-    int p = src->mailbox[s];
+    int p = to_under(src->mailbox[s]);
     if (!p) continue;
     int f = file_of((Square)s), r = rank_of((Square)s);
-    dst->mailbox[square_of(f, 7 - r)] = (u8)(p ^ 8);
+    dst->mailbox[square_of(f, 7 - r)] = (Piece)(p ^ 8);
   }
-  dst->side = (Color)(1 - src->side);
+  dst->side = (Color)(1 - to_under(src->side));
   dst->cr   = src->cr;
   if (src->ep_sq < SQ_NB) {
     int f = file_of(src->ep_sq), r = rank_of(src->ep_sq);
@@ -173,7 +173,7 @@ static int t_reject(void) {
  *       #1 e5 legal; #2 e5 pinned; #3 g5 exposes the king; #4 e5 clears a check;
  *       #5 c5 legal / e5 pinned (so "c5d6 only"); #6 neither; #7/#8 e5 unsafe.
  * Square indices are 0-based file + 8*rank (d6 = 43, d5 = 35, e5 = 36, ...). */
-typedef struct { int piece; int file; int rank; } Pl;       /* listed placement */
+typedef struct { Piece piece; int file; int rank; } Pl;       /* listed placement */
 typedef struct { int captor; int safe; } Captor;           /* one captor check */
 typedef struct {
   int         id;
@@ -192,28 +192,28 @@ static int t_ep(void) {
    * comment above. No expectation is derived from engine output. */
   static const EpCase cases[] = {
     { 1, "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20",
-      { {W_KING,4,0},{W_PAWN,4,4} }, 2, { {B_KING,0,7},{B_PAWN,3,4} }, 2,
+      { {Piece::W_KING,4,0},{Piece::W_PAWN,4,4} }, 2, { {Piece::B_KING,0,7},{Piece::B_PAWN,3,4} }, 2,
       43, 3, 1, { {36,1} }, 1 },
     { 2, "k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 20",
-      { {W_KING,4,0},{W_PAWN,4,4} }, 2, { {B_KING,0,7},{B_ROOK,4,7},{B_PAWN,3,4} }, 3,
+      { {Piece::W_KING,4,0},{Piece::W_PAWN,4,4} }, 2, { {Piece::B_KING,0,7},{Piece::B_ROOK,4,7},{Piece::B_PAWN,3,4} }, 3,
       43, -1, 0, { {36,0} }, 1 },
     { 3, "k7/8/8/r4pPK/8/8/8/8 w - f6 0 20",
-      { {W_KING,7,4},{W_PAWN,6,4} }, 2, { {B_KING,0,7},{B_ROOK,0,4},{B_PAWN,5,4} }, 3,
+      { {Piece::W_KING,7,4},{Piece::W_PAWN,6,4} }, 2, { {Piece::B_KING,0,7},{Piece::B_ROOK,0,4},{Piece::B_PAWN,5,4} }, 3,
       45, -1, 0, { {38,0} }, 1 },
     { 4, "k7/8/8/3pP3/4K3/8/8/8 w - d6 0 20",
-      { {W_KING,4,3},{W_PAWN,4,4} }, 2, { {B_KING,0,7},{B_PAWN,3,4} }, 2,
+      { {Piece::W_KING,4,3},{Piece::W_PAWN,4,4} }, 2, { {Piece::B_KING,0,7},{Piece::B_PAWN,3,4} }, 2,
       43, 3, 1, { {36,1} }, 1 },
     { 5, "k3r3/8/8/2PpP3/8/8/8/4K3 w - d6 0 20",
-      { {W_KING,4,0},{W_PAWN,2,4},{W_PAWN,4,4} }, 3, { {B_KING,0,7},{B_ROOK,4,7},{B_PAWN,3,4} }, 3,
+      { {Piece::W_KING,4,0},{Piece::W_PAWN,2,4},{Piece::W_PAWN,4,4} }, 3, { {Piece::B_KING,0,7},{Piece::B_ROOK,4,7},{Piece::B_PAWN,3,4} }, 3,
       43, 3, 1, { {34,1},{36,0} }, 2 },
     { 6, "k7/8/8/3p4/8/8/8/4K3 w - d6 0 20",
-      { {W_KING,4,0} }, 1, { {B_KING,0,7},{B_PAWN,3,4} }, 2,
+      { {Piece::W_KING,4,0} }, 1, { {Piece::B_KING,0,7},{Piece::B_PAWN,3,4} }, 2,
       43, -1, 0, { {34,0},{36,0} }, 2 },
     { 7, "kb6/8/8/4Pp2/8/8/7K/8 w - f6 0 20",
-      { {W_KING,7,1},{W_PAWN,4,4} }, 2, { {B_KING,0,7},{B_BISHOP,1,7},{B_PAWN,5,4} }, 3,
+      { {Piece::W_KING,7,1},{Piece::W_PAWN,4,4} }, 2, { {Piece::B_KING,0,7},{Piece::B_BISHOP,1,7},{Piece::B_PAWN,5,4} }, 3,
       45, -1, 0, { {36,0} }, 1 },
     { 8, "4b2k/8/8/3pP3/K7/8/8/8 w - d6 0 20",
-      { {W_KING,0,3},{W_PAWN,4,4} }, 2, { {B_KING,7,7},{B_BISHOP,4,7},{B_PAWN,3,4} }, 3,
+      { {Piece::W_KING,0,3},{Piece::W_PAWN,4,4} }, 2, { {Piece::B_KING,7,7},{Piece::B_BISHOP,4,7},{Piece::B_PAWN,3,4} }, 3,
       43, -1, 0, { {36,0} }, 1 },
   };
   int fail = 0;

@@ -25,27 +25,27 @@
 static int piece_from_char(char c) {
   Color color;
   char uc;
-  if (c >= 'a' && c <= 'z') { color = BLACK; uc = (char)(c - 'a' + 'A'); }
-  else if (c >= 'A' && c <= 'Z') { color = WHITE; uc = c; }
+  if (c >= 'a' && c <= 'z') { color = Color::BLACK; uc = (char)(c - 'a' + 'A'); }
+  else if (c >= 'A' && c <= 'Z') { color = Color::WHITE; uc = c; }
   else return -1;
   PieceType t;
   switch (uc) {
-    case 'P': t = PAWN;   break;
-    case 'N': t = KNIGHT; break;
-    case 'B': t = BISHOP; break;
-    case 'R': t = ROOK;   break;
-    case 'Q': t = QUEEN;  break;
-    case 'K': t = KING;   break;
+    case 'P': t = PieceType::PAWN;   break;
+    case 'N': t = PieceType::KNIGHT; break;
+    case 'B': t = PieceType::BISHOP; break;
+    case 'R': t = PieceType::ROOK;   break;
+    case 'Q': t = PieceType::QUEEN;  break;
+    case 'K': t = PieceType::KING;   break;
     default:  return -1;
   }
-  return (int)((u8)t | (u8)(color << 3));   /* type (1..6) | color (0/8) */
+  return (int)(to_under(t) | (to_under(color) << 3));   /* type (1..6) | color (0/8) */
 }
 
 /* Map a Piece (1..15) to its FEN letter. */
 static char char_from_piece(Piece p) {
   static const char upper[PIECE_TYPE_NB] = { ' ', 'P', 'N', 'B', 'R', 'Q', 'K' };
-  char c = upper[p & 7];
-  return (p >= B_PAWN) ? (char)(c | 0x20) : c;   /* lowercase if black */
+  char c = upper[to_under(p) & 0x7u];
+  return (p >= Piece::B_PAWN) ? (char)(c | 0x20) : c;   /* lowercase if black */
 }
 
 /* ---- 6-field split (single spaces, six non-empty fields) ---- */
@@ -79,7 +79,7 @@ static int split_fields(const char *fen, const char **f, size_t *n, const char *
 /* Parse the placement field into *mailbox. Eight ranks separated by '/', rank 8
  * first; each rank spans exactly 8 squares (digits 1-8 = empty squares, letters
  * = pieces). Returns 1 on success, 0 (and *why) on failure. */
-static int parse_placement(const char *s, size_t len, u8 *mailbox, const char **why) {
+static int parse_placement(const char *s, size_t len, Piece *mailbox, const char **why) {
   std::memset(mailbox, 0, SQ_NB);
   int rank = RANK_8;   /* FEN lists the 8th rank first, down to the 1st */
   int col  = 0;        /* squares placed on the current rank (0..8) */
@@ -99,7 +99,7 @@ static int parse_placement(const char *s, size_t len, u8 *mailbox, const char **
       int pc = piece_from_char(c);
       if (pc < 0) { if (why) *why = "invalid placement character"; return 0; }
       if (col > 7) { if (why) *why = "a placement rank exceeds 8 squares"; return 0; }
-      mailbox[square_of((Square)col, (Square)rank)] = (u8)pc;
+      mailbox[square_of((Square)col, (Square)rank)] = (Piece)pc;
       col++;
     }
   }
@@ -109,8 +109,8 @@ static int parse_placement(const char *s, size_t len, u8 *mailbox, const char **
 
 /* ---- field: side ---- */
 static int parse_side(const char *s, size_t len, Color *side, const char **why) {
-  if (len == 1 && s[0] == 'w') { *side = WHITE; return 1; }
-  if (len == 1 && s[0] == 'b') { *side = BLACK; return 1; }
+  if (len == 1 && s[0] == 'w') { *side = Color::WHITE; return 1; }
+  if (len == 1 && s[0] == 'b') { *side = Color::BLACK; return 1; }
   if (why) *why = "side must be 'w' or 'b'";
   return 0;
 }
@@ -226,7 +226,7 @@ static int fen_len(const Position *pos) {
   for (int r = RANK_8; r >= RANK_1; r--) {
     int run = 0, ranklen = 0;
     for (int f = FILE_A; f < FILE_NB; f++) {
-      if (pos->mailbox[square_of((Square)f, (Square)r)] == NO_PIECE) { run++; continue; }
+      if (pos->mailbox[square_of((Square)f, (Square)r)] == Piece::NO_PIECE) { run++; continue; }
       if (run) { ranklen += 1; run = 0; }   /* a run of 1..8 empty squares = 1 digit */
       ranklen++;
     }
@@ -266,7 +266,7 @@ int fen_emit(const Position *pos, char *out, int outsz) {
     int run = 0;
     for (int f = FILE_A; f < FILE_NB; f++) {
       Piece p = pos->mailbox[square_of((Square)f, (Square)r)];
-      if (p == NO_PIECE) { run++; continue; }
+      if (p == Piece::NO_PIECE) { run++; continue; }
       if (run) { out[i++] = (char)('0' + run); run = 0; }
       out[i++] = char_from_piece(p);
     }
@@ -275,7 +275,7 @@ int fen_emit(const Position *pos, char *out, int outsz) {
   }
 
   out[i++] = ' ';
-  out[i++] = (pos->side == WHITE) ? 'w' : 'b';
+  out[i++] = (pos->side == Color::WHITE) ? 'w' : 'b';
 
   out[i++] = ' ';
   if (pos->cr == 0) out[i++] = '-';

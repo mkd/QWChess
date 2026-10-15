@@ -102,7 +102,7 @@ static int t_both_colors_counters(void) {
   const int hms[] = { 0, 99, 100, 255, 256, 65535 };
   const int fms[] = { 1, 65535 };   /* covers the normal value and the wide max */
   for (int si = 0; si < 2; si++) {
-    Color side = si ? BLACK : WHITE;
+    Color side = si ? Color::BLACK : Color::WHITE;
     for (int hi = 0; hi < 6; hi++) {
       for (int fi = 0; fi < 2; fi++) {
         Position pos; pos_set_startpos(&pos);
@@ -110,16 +110,16 @@ static int t_both_colors_counters(void) {
         pos.halfmove = (HalfMoveClock)hms[hi];
         pos.fullmove = (FullMoveNumber)fms[fi];
         pos_rebuild(&pos);   /* keep the key consistent with the overridden side */
-        /* startpos: cr == CR_ALL, ep_sq == NO_SQUARE, a1 == W_ROOK */
+        /* startpos: cr == CR_ALL, ep_sq == NO_SQUARE, a1 == Piece::W_ROOK */
         StateInfo st; std::memset(&st, 0, sizeof st);
         Position before = pos;
         char label[64];
         std::snprintf(label, sizeof label, "null %s hm=%d fm=%d",
-                 side == WHITE ? "w" : "b", hms[hi], fms[fi]);
+                 side == Color::WHITE ? "w" : "b", hms[hi], fms[fi]);
         QWC_TRUE(pos_make_null_move(&pos, &st) == 1, label);
         QWC_TRUE(board_equal(&pos, &before), label);           /* the board is untouched */
         QWC_EQ_I((int)pos.side, (int)other(side), "side flipped");
-        QWC_EQ_I((int)pos.mailbox[0], (int)W_ROOK, "a1 still holds the rook");
+        QWC_EQ_I((int)pos.mailbox[0], (int)Piece::W_ROOK, "a1 still holds the rook");
         QWC_EQ_I(st.delta.edit_count, 0, "zero board edits recorded");
         QWC_EQ_I((int)st.delta.move, 0, "delta move is the null marker");
         QWC_EQ_I((int)pos.halfmove, hms[hi], "halfmove preserved");
@@ -274,7 +274,7 @@ static int t_nested(void) {
     Position p; StateInfo s; std::memset(&s, 0, sizeof s);
     QWC_TRUE(fen_load(&p, "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", &why) == 1, "load EP pos");
     Position pb = p;
-    QWC_TRUE(pos_make_move(&p, &s, mvf(4, 4, 3, 5, MV_EP, NO_PIECE)) == 1, "EP capture accepted");
+    QWC_TRUE(pos_make_move(&p, &s, mvf(4, 4, 3, 5, to_under(MoveFlag::MV_EP), to_under(Piece::NO_PIECE))) == 1, "EP capture accepted");
     QWC_TRUE(p.history == &s && s.prev == nullptr, "EP capture links to the root");
     pos_unmake_move(&p, &s);
     QWC_TRUE(p.history == nullptr && pos_equal(&p, &pb), "undo EP restores history + board");
@@ -283,7 +283,7 @@ static int t_nested(void) {
     Position p; StateInfo s; std::memset(&s, 0, sizeof s);
     QWC_TRUE(fen_load(&p, "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 12 42", &why) == 1, "load castling pos");
     Position pb = p;
-    QWC_TRUE(pos_make_move(&p, &s, mvf(4, 0, 7, 0, MV_CASTLE, NO_PIECE)) == 1, "O-O accepted");
+    QWC_TRUE(pos_make_move(&p, &s, mvf(4, 0, 7, 0, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE))) == 1, "O-O accepted");
     QWC_TRUE(p.history == &s && s.prev == nullptr, "castling links to the root");
     pos_unmake_move(&p, &s);
     QWC_TRUE(p.history == nullptr && pos_equal(&p, &pb), "undo castling restores history + board");

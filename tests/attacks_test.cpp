@@ -63,7 +63,7 @@ static u64 ref_bishop_mask(int sq) {
 static u64 ref_queen(int sq, u64 occ) { return ref_rook(sq, occ) | ref_bishop(sq, occ); }
 
 static u64 ref_pawn(Color c, int sq) {
-  int f = sq & 7, r = sq >> 3, dr = (c == WHITE) ? 1 : -1;
+  int f = sq & 7, r = sq >> 3, dr = (c == Color::WHITE) ? 1 : -1;
   u64 p = 0;
   if (ref_onb(f - 1, r + dr)) p |= ref_bit(f - 1, r + dr);
   if (ref_onb(f + 1, r + dr)) p |= ref_bit(f + 1, r + dr);
@@ -110,10 +110,10 @@ static void cmp_bb(const char *what, Color c, int sq, u64 occ, u64 got, u64 exp)
 static int t_pawn(void) {
   qwc_begin("attacks.pawn");
   /* reference must reproduce known-correct capture sets (independent of prod) */
-  cmp_bb("pawn.ref", WHITE, 0,  0, ref_pawn(WHITE, 0),  ref_bit(1, 1));  /* a1 -> b2 */
-  cmp_bb("pawn.ref", WHITE, 55, 0, ref_pawn(WHITE, 55), ref_bit(6, 7));  /* h7 -> g8 */
-  cmp_bb("pawn.ref", BLACK, 63, 0, ref_pawn(BLACK, 63), ref_bit(6, 6));  /* h8 -> g7 */
-  cmp_bb("pawn.ref", BLACK, 56, 0, ref_pawn(BLACK, 56), ref_bit(1, 6));  /* a8 -> b7 */
+  cmp_bb("pawn.ref", Color::WHITE, 0,  0, ref_pawn(Color::WHITE, 0),  ref_bit(1, 1));  /* a1 -> b2 */
+  cmp_bb("pawn.ref", Color::WHITE, 55, 0, ref_pawn(Color::WHITE, 55), ref_bit(6, 7));  /* h7 -> g8 */
+  cmp_bb("pawn.ref", Color::BLACK, 63, 0, ref_pawn(Color::BLACK, 63), ref_bit(6, 6));  /* h8 -> g7 */
+  cmp_bb("pawn.ref", Color::BLACK, 56, 0, ref_pawn(Color::BLACK, 56), ref_bit(1, 6));  /* a8 -> b7 */
   /* production must match the reference on every square / color */
   for (int c = 0; c < 2; c++)
     for (int sq = 0; sq < SQ_NB; sq++)
@@ -124,22 +124,22 @@ static int t_pawn(void) {
 static int t_knight(void) {
   qwc_begin("attacks.knight");
   /* a1 corner = 2 moves (b3,c2); e4 center = 8 moves */
-  cmp_bb("knight.ref", WHITE, 0, 0, ref_knight(0),
+  cmp_bb("knight.ref", Color::WHITE, 0, 0, ref_knight(0),
          ref_bit(1, 2) | ref_bit(2, 1));
   u64 e4 = ref_bit(3, 5) | ref_bit(5, 5) | ref_bit(6, 4) | ref_bit(6, 2) |
            ref_bit(5, 1) | ref_bit(3, 1) | ref_bit(2, 2) | ref_bit(2, 4);
-  cmp_bb("knight.ref", WHITE, 28, 0, ref_knight(28), e4);
+  cmp_bb("knight.ref", Color::WHITE, 28, 0, ref_knight(28), e4);
   for (int sq = 0; sq < SQ_NB; sq++)
-    cmp_bb("knight", WHITE, sq, 0, knight_attacks((Square)sq), ref_knight(sq));
+    cmp_bb("knight", Color::WHITE, sq, 0, knight_attacks((Square)sq), ref_knight(sq));
   return qwc_end();
 }
 
 static int t_king(void) {
   qwc_begin("attacks.king");
-  cmp_bb("king.ref", WHITE, 0,  0, ref_king(0),  ref_bit(1, 0) | ref_bit(0, 1) | ref_bit(1, 1));  /* a1 */
-  cmp_bb("king.ref", WHITE, 63, 0, ref_king(63), ref_bit(6, 7) | ref_bit(7, 6) | ref_bit(6, 6));  /* h8 */
+  cmp_bb("king.ref", Color::WHITE, 0,  0, ref_king(0),  ref_bit(1, 0) | ref_bit(0, 1) | ref_bit(1, 1));  /* a1 */
+  cmp_bb("king.ref", Color::WHITE, 63, 0, ref_king(63), ref_bit(6, 7) | ref_bit(7, 6) | ref_bit(6, 6));  /* h8 */
   for (int sq = 0; sq < SQ_NB; sq++)
-    cmp_bb("king", WHITE, sq, 0, king_attacks((Square)sq), ref_king(sq));
+    cmp_bb("king", Color::WHITE, sq, 0, king_attacks((Square)sq), ref_king(sq));
   return qwc_end();
 }
 
@@ -154,7 +154,7 @@ static int t_rook_exhaustive(void) {
   for (int sq = 0; sq < SQ_NB; sq++) {
     u64 mask = ref_rook_mask(sq);
     for (u64 s = mask; ; s = (s - 1) & mask) {
-      cmp_bb("rook", WHITE, sq, s, rook_attacks((Square)sq, s), ref_rook(sq, s));
+      cmp_bb("rook", Color::WHITE, sq, s, rook_attacks((Square)sq, s), ref_rook(sq, s));
       total++;
       if (s == 0) break;
     }
@@ -168,7 +168,7 @@ static int t_bishop_exhaustive(void) {
   for (int sq = 0; sq < SQ_NB; sq++) {
     u64 mask = ref_bishop_mask(sq);
     for (u64 s = mask; ; s = (s - 1) & mask) {
-      cmp_bb("bishop", WHITE, sq, s, bishop_attacks((Square)sq, s), ref_bishop(sq, s));
+      cmp_bb("bishop", Color::WHITE, sq, s, bishop_attacks((Square)sq, s), ref_bishop(sq, s));
       total++;
       if (s == 0) break;
     }
@@ -204,7 +204,7 @@ static int t_source_invariance(void) {
       QWC_TRUE(rook_attacks((Square)sq, o)   == rook_attacks((Square)sq, o & ~src), "rook source-invariant");
       QWC_TRUE(bishop_attacks((Square)sq, o) == bishop_attacks((Square)sq, o & ~src), "bishop source-invariant");
       QWC_TRUE(queen_attacks((Square)sq, o)  == queen_attacks((Square)sq, o & ~src), "queen source-invariant");
-      cmp_bb("rook", WHITE, sq, o & ~src, rook_attacks((Square)sq, o & ~src), ref_rook(sq, o & ~src));
+      cmp_bb("rook", Color::WHITE, sq, o & ~src, rook_attacks((Square)sq, o & ~src), ref_rook(sq, o & ~src));
     }
   }
   return qwc_end();
@@ -219,7 +219,7 @@ static int t_queen_seeded(void) {
   for (int sq = 0; sq < SQ_NB; sq++)
     for (int i = 0; i < 128; i++) {
       u64 occ = prng_next();
-      cmp_bb("queen", WHITE, sq, occ, queen_attacks((Square)sq, occ), ref_queen(sq, occ));
+      cmp_bb("queen", Color::WHITE, sq, occ, queen_attacks((Square)sq, occ), ref_queen(sq, occ));
     }
   return qwc_end();
 }

@@ -36,36 +36,36 @@ static int t_startpos(void) {
   qwc_begin("pos.startpos");
   Position p; pos_set_startpos(&p);
   for (int f = 0; f < FILE_NB; f++) {
-    QWC_EQ_I((int)p.mailbox[8 + f],  W_PAWN, "white pawn rank");
-    QWC_EQ_I((int)p.mailbox[48 + f], B_PAWN, "black pawn rank");
+    QWC_EQ_I((int)p.mailbox[8 + f],  to_under(Piece::W_PAWN), "white pawn rank");
+    QWC_EQ_I((int)p.mailbox[48 + f], to_under(Piece::B_PAWN), "black pawn rank");
   }
   /* white back rank R N B Q K B N R (squares 0..7) */
-  QWC_EQ_I((int)p.mailbox[0], W_ROOK,   "W a1"); QWC_EQ_I((int)p.mailbox[1], W_KNIGHT, "W b1");
-  QWC_EQ_I((int)p.mailbox[2], W_BISHOP, "W c1"); QWC_EQ_I((int)p.mailbox[3], W_QUEEN,  "W d1");
-  QWC_EQ_I((int)p.mailbox[4], W_KING,   "W e1"); QWC_EQ_I((int)p.mailbox[5], W_BISHOP, "W f1");
-  QWC_EQ_I((int)p.mailbox[6], W_KNIGHT, "W g1"); QWC_EQ_I((int)p.mailbox[7], W_ROOK,   "W h1");
+  QWC_EQ_I((int)p.mailbox[0], to_under(Piece::W_ROOK),   "W a1"); QWC_EQ_I((int)p.mailbox[1], to_under(Piece::W_KNIGHT), "W b1");
+  QWC_EQ_I((int)p.mailbox[2], to_under(Piece::W_BISHOP), "W c1"); QWC_EQ_I((int)p.mailbox[3], to_under(Piece::W_QUEEN),  "W d1");
+  QWC_EQ_I((int)p.mailbox[4], to_under(Piece::W_KING),   "W e1"); QWC_EQ_I((int)p.mailbox[5], to_under(Piece::W_BISHOP), "W f1");
+  QWC_EQ_I((int)p.mailbox[6], to_under(Piece::W_KNIGHT), "W g1"); QWC_EQ_I((int)p.mailbox[7], to_under(Piece::W_ROOK),   "W h1");
   /* black back rank r n b q k b n r (squares 56..63) */
-  QWC_EQ_I((int)p.mailbox[56], B_ROOK,   "B a8"); QWC_EQ_I((int)p.mailbox[57], B_KNIGHT, "B b8");
-  QWC_EQ_I((int)p.mailbox[58], B_BISHOP, "B c8"); QWC_EQ_I((int)p.mailbox[59], B_QUEEN,  "B d8");
-  QWC_EQ_I((int)p.mailbox[60], B_KING,   "B e8"); QWC_EQ_I((int)p.mailbox[61], B_BISHOP, "B f8");
-  QWC_EQ_I((int)p.mailbox[62], B_KNIGHT, "B g8"); QWC_EQ_I((int)p.mailbox[63], B_ROOK,   "B h8");
+  QWC_EQ_I((int)p.mailbox[56], to_under(Piece::B_ROOK),   "B a8"); QWC_EQ_I((int)p.mailbox[57], to_under(Piece::B_KNIGHT), "B b8");
+  QWC_EQ_I((int)p.mailbox[58], to_under(Piece::B_BISHOP), "B c8"); QWC_EQ_I((int)p.mailbox[59], to_under(Piece::B_QUEEN),  "B d8");
+  QWC_EQ_I((int)p.mailbox[60], to_under(Piece::B_KING),   "B e8"); QWC_EQ_I((int)p.mailbox[61], to_under(Piece::B_BISHOP), "B f8");
+  QWC_EQ_I((int)p.mailbox[62], to_under(Piece::B_KNIGHT), "B g8"); QWC_EQ_I((int)p.mailbox[63], to_under(Piece::B_ROOK),   "B h8");
   for (int s = 16; s < 48; s++)
-    QWC_EQ_I((int)p.mailbox[s], NO_PIECE, "middle ranks empty");
+    QWC_EQ_I((int)p.mailbox[s], to_under(Piece::NO_PIECE), "middle ranks empty");
 
   QWC_EQ_I((int)popcount(p.occ), 32, "32 pieces");
-  QWC_EQ_I((int)popcount(p.byColor[WHITE]), 16, "16 white");
-  QWC_EQ_I((int)popcount(p.byColor[BLACK]), 16, "16 black");
-  QWC_EQ_U64(p.occ, p.byColor[WHITE] | p.byColor[BLACK], "occ = colors");
-  QWC_EQ_I((int)popcount(p.byPiece[W_PAWN] | p.byPiece[B_PAWN]), 16, "16 pawns");
-  QWC_EQ_I((int)popcount(p.byPiece[W_KNIGHT] | p.byPiece[B_KNIGHT]), 4, "4 knights");
-  QWC_EQ_I((int)popcount(p.byPiece[W_BISHOP] | p.byPiece[B_BISHOP]), 4, "4 bishops");
-  QWC_EQ_I((int)popcount(p.byPiece[W_ROOK] | p.byPiece[B_ROOK]), 4, "4 rooks");
-  QWC_EQ_I((int)popcount(p.byPiece[W_QUEEN] | p.byPiece[B_QUEEN]), 2, "2 queens");
-  QWC_EQ_I((int)popcount(p.byPiece[W_KING] | p.byPiece[B_KING]), 2, "2 kings");
+  QWC_EQ_I((int)popcount(p.byColor[to_under(Color::WHITE)]), 16, "16 white");
+  QWC_EQ_I((int)popcount(p.byColor[to_under(Color::BLACK)]), 16, "16 black");
+  QWC_EQ_U64(p.occ, p.byColor[to_under(Color::WHITE)] | p.byColor[to_under(Color::BLACK)], "occ = colors");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_PAWN)] | p.byPiece[to_under(Piece::B_PAWN)]), 16, "16 pawns");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_KNIGHT)] | p.byPiece[to_under(Piece::B_KNIGHT)]), 4, "4 knights");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_BISHOP)] | p.byPiece[to_under(Piece::B_BISHOP)]), 4, "4 bishops");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_ROOK)] | p.byPiece[to_under(Piece::B_ROOK)]), 4, "4 rooks");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_QUEEN)] | p.byPiece[to_under(Piece::B_QUEEN)]), 2, "2 queens");
+  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_KING)] | p.byPiece[to_under(Piece::B_KING)]), 2, "2 kings");
 
   QWC_EQ_I((int)p.wKingSq, 4, "wKing e1");   /* e1 */
   QWC_EQ_I((int)p.bKingSq, 60, "bKing e8");  /* e8 */
-  QWC_EQ_I((int)p.side, WHITE, "white to move");
+  QWC_EQ_I((int)p.side, to_under(Color::WHITE), "white to move");
   QWC_EQ_I((int)p.cr, 15, "all castling rights");
   QWC_EQ_I((int)p.ep_sq, NO_SQUARE, "no ep");
   QWC_EQ_I((int)p.halfmove, 0, "halfmove 0");
@@ -79,8 +79,8 @@ static int t_startpos(void) {
 /* ---- explicitly constructed no-EP positions ---- */
 static void build_kings(Position *pos, Square wk, Square bk, Color side) {
   pos_reset(pos);
-  place(pos, wk, W_KING);
-  place(pos, bk, B_KING);
+  place(pos, wk, Piece::W_KING);
+  place(pos, bk, Piece::B_KING);
   pos->side = side;
   pos->cr = 0;
   pos_rebuild(pos);
@@ -88,7 +88,7 @@ static void build_kings(Position *pos, Square wk, Square bk, Color side) {
 
 static int t_constructed(void) {
   qwc_begin("pos.constructed");
-  Position k; build_kings(&k, 4, 60, WHITE);   /* e1/e8 */
+  Position k; build_kings(&k, 4, 60, Color::WHITE);   /* e1/e8 */
   QWC_EQ_I((int)popcount(k.occ), 2, "kings-only: 2 pieces");
   QWC_EQ_I((int)k.wKingSq, 4, "kings-only wKing");
   QWC_EQ_I((int)k.bKingSq, 60, "kings-only bKing");
@@ -96,8 +96,8 @@ static int t_constructed(void) {
   QWC_TRUE(pos_validate(&k, nullptr), "kings-only validates");
   QWC_EQ_U64(k.key, expected_key(&k, -1), "kings-only key");
 
-  Position kb; build_kings(&kb, 5, 61, BLACK);  /* f1/f8, Black to move */
-  QWC_EQ_I((int)kb.side, BLACK, "black to move");
+  Position kb; build_kings(&kb, 5, 61, Color::BLACK);  /* f1/f8, Black to move */
+  QWC_EQ_I((int)kb.side, to_under(Color::BLACK), "black to move");
   QWC_TRUE(pos_validate(&kb, nullptr), "black-to-move validates");
   QWC_EQ_U64(kb.key, expected_key(&kb, -1), "black-to-move key");
   QWC_TRUE(kb.key != k.key, "side changes the key");
@@ -111,7 +111,7 @@ static int t_reset_isolation(void) {
   QWC_EQ_I((int)popcount(e.occ), 0, "reset: empty");
   QWC_EQ_I((int)e.wKingSq, NO_SQUARE, "reset: no white king");
   QWC_EQ_I((int)e.bKingSq, NO_SQUARE, "reset: no black king");
-  QWC_EQ_I((int)e.side, WHITE, "reset: white");
+  QWC_EQ_I((int)e.side, to_under(Color::WHITE), "reset: white");
   QWC_EQ_I((int)e.cr, 0, "reset: no rights");
   QWC_EQ_I((int)e.ep_sq, NO_SQUARE, "reset: no ep");
   QWC_TRUE(pos_validate(&e, nullptr) == 0, "reset (no kings) rejected");
@@ -120,7 +120,7 @@ static int t_reset_isolation(void) {
   /* Two separate instances must not share or affect each other's storage. */
   Position a, b; pos_set_startpos(&a); pos_set_startpos(&b);
   u64 akey = a.key;
-  a.mailbox[4] = NO_PIECE; pos_rebuild(&a);  /* remove the white king from a */
+  a.mailbox[4] = Piece::NO_PIECE; pos_rebuild(&a);  /* remove the white king from a */
   QWC_TRUE(pos_validate(&a, nullptr) == 0, "a (king removed) rejected");
   QWC_TRUE(pos_validate(&b, nullptr), "b unaffected by a");
   QWC_EQ_U64(b.key, akey, "b key unchanged");
@@ -135,13 +135,13 @@ static int t_reset_isolation(void) {
  * T003 setup paths do not produce EP -- FEN parsing lands in the next cp.) */
 static Position ep_cfg(Square wk, Square bk, Color side, int f, int r, int with_captor) {
   Position p; pos_reset(&p);
-  p.mailbox[wk] = W_KING;
-  p.mailbox[bk] = B_KING;
-  int pr = (side == WHITE) ? r - 1 : r + 1;   /* rank the two pawns share */
-  Piece pushed = (side == WHITE) ? B_PAWN : W_PAWN;   /* the double-pushed pawn */
+  p.mailbox[wk] = Piece::W_KING;
+  p.mailbox[bk] = Piece::B_KING;
+  int pr = (side == Color::WHITE) ? r - 1 : r + 1;   /* rank the two pawns share */
+  Piece pushed = (side == Color::WHITE) ? Piece::B_PAWN : Piece::W_PAWN;   /* the double-pushed pawn */
   p.mailbox[sq_of(f, pr)] = pushed;
   if (with_captor) {
-    Piece cap = (side == WHITE) ? W_PAWN : B_PAWN;    /* the capturing pawn */
+    Piece cap = (side == Color::WHITE) ? Piece::W_PAWN : Piece::B_PAWN;    /* the capturing pawn */
     p.mailbox[sq_of(f + 1, pr)] = cap;
   }
   p.side = side; p.cr = 0; p.ep_sq = sq_of(f, r);
@@ -151,18 +151,18 @@ static Position ep_cfg(Square wk, Square bk, Color side, int f, int r, int with_
 
 static int t_canonical(void) {
   qwc_begin("pos.canonical_ep");
-  Position w = ep_cfg(4, 60, WHITE, 3, 5, 1);   /* d6 target; black d5, white e5 */
+  Position w = ep_cfg(4, 60, Color::WHITE, 3, 5, 1);   /* d6 target; black d5, white e5 */
   QWC_EQ_I(pos_canon_ep_file(&w), 3, "white legal ep -> file d");
   QWC_TRUE(pos_validate(&w, nullptr), "white ep position validates");
   QWC_EQ_U64(w.key, expected_key(&w, 3), "white ep key includes ep-file d");
   QWC_TRUE((w.key ^ expected_key(&w, -1)) != 0, "ep-file key is non-zero");
 
-  Position b = ep_cfg(4, 60, BLACK, 3, 2, 1);   /* d3 target; white d4, black e4 */
+  Position b = ep_cfg(4, 60, Color::BLACK, 3, 2, 1);   /* d3 target; white d4, black e4 */
   QWC_EQ_I(pos_canon_ep_file(&b), 3, "black legal ep -> file d");
   QWC_TRUE(pos_validate(&b, nullptr), "black ep position validates");
   QWC_EQ_U64(b.key, expected_key(&b, 3), "black ep key includes ep-file d");
 
-  Position bad = ep_cfg(4, 60, WHITE, 3, 5, 0);  /* d6 target, no captor */
+  Position bad = ep_cfg(4, 60, Color::WHITE, 3, 5, 0);  /* d6 target, no captor */
   QWC_EQ_I(pos_canon_ep_file(&bad), -1, "no captor -> no legal ep");
   QWC_TRUE(pos_validate(&bad, nullptr), "uncapturable-but-valid ep is accepted");
   QWC_EQ_U64(bad.key, expected_key(&bad, -1), "uncapturable ep: no key contribution");
@@ -208,25 +208,25 @@ static int t_corruption(void) {
   Position c;
   const char *why = nullptr;
 
-  std::memcpy(&c, &ok, sizeof c); c.mailbox[16] = (u8)159;
+  std::memcpy(&c, &ok, sizeof c); c.mailbox[16] = (Piece)159;
   QWC_TRUE(pos_validate(&c, &why) == 0, "invalid piece code rejected");
-  QWC_TRUE(c.mailbox[16] == 159, "validator did not mutate mailbox");
+  QWC_TRUE(to_under(c.mailbox[16]) == 159, "validator did not mutate mailbox");
 
-  std::memcpy(&c, &ok, sizeof c); c.mailbox[4] = NO_PIECE; pos_rebuild(&c);
+  std::memcpy(&c, &ok, sizeof c); c.mailbox[4] = Piece::NO_PIECE; pos_rebuild(&c);
   QWC_TRUE(pos_validate(&c, &why) == 0, "missing white king rejected");
-  QWC_TRUE(c.mailbox[4] == NO_PIECE, "validator did not restore king");
+  QWC_TRUE(c.mailbox[4] == Piece::NO_PIECE, "validator did not restore king");
 
-  std::memcpy(&c, &ok, sizeof c); c.mailbox[16] = W_KING; pos_rebuild(&c);
+  std::memcpy(&c, &ok, sizeof c); c.mailbox[16] = Piece::W_KING; pos_rebuild(&c);
   QWC_TRUE(pos_validate(&c, &why) == 0, "extra white king rejected");
-  QWC_TRUE(c.mailbox[16] == W_KING, "validator did not remove king");
+  QWC_TRUE(c.mailbox[16] == Piece::W_KING, "validator did not remove king");
 
-  std::memcpy(&c, &ok, sizeof c); c.byColor[WHITE] |= square_bb(16);
+  std::memcpy(&c, &ok, sizeof c); c.byColor[to_under(Color::WHITE)] |= square_bb(16);
   QWC_TRUE(pos_validate(&c, &why) == 0, "occupancy mismatch rejected");
-  QWC_TRUE((c.byColor[WHITE] & square_bb(16)) != 0, "validator did not mutate byColor");
+  QWC_TRUE((c.byColor[to_under(Color::WHITE)] & square_bb(16)) != 0, "validator did not mutate byColor");
 
-  std::memcpy(&c, &ok, sizeof c); c.byPiece[W_PAWN] |= square_bb(16);
+  std::memcpy(&c, &ok, sizeof c); c.byPiece[to_under(Piece::W_PAWN)] |= square_bb(16);
   QWC_TRUE(pos_validate(&c, &why) == 0, "piece bitboard mismatch rejected");
-  QWC_TRUE((c.byPiece[W_PAWN] & square_bb(16)) != 0, "validator did not mutate byPiece");
+  QWC_TRUE((c.byPiece[to_under(Piece::W_PAWN)] & square_bb(16)) != 0, "validator did not mutate byPiece");
 
   std::memcpy(&c, &ok, sizeof c); c.wKingSq = 3;   /* d1, but the king is on e1 */
   QWC_TRUE(pos_validate(&c, &why) == 0, "stale wKingSq rejected");
@@ -239,7 +239,7 @@ static int t_corruption(void) {
   QWC_TRUE(pos_validate(&c, &why) == 0, "invalid rights rejected");
   QWC_TRUE((int)c.cr == 16, "validator did not mutate cr");
 
-  std::memcpy(&c, &ok, sizeof c); c.side = (u8)2;
+  std::memcpy(&c, &ok, sizeof c); c.side = (Color)2;
   QWC_TRUE(pos_validate(&c, &why) == 0, "invalid side rejected");
   QWC_TRUE((int)c.side == 2, "validator did not mutate side");
 

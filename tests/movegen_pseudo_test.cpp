@@ -15,7 +15,7 @@
  * counter-independence case; and a per-candidate apply/unmake round-trip.
  *
  * The coordinate strings are test-only notation; a small decoder turns them into
- * Moves (a promotion suffix sets MV_PROMO; the per-fixture EP list sets MV_EP).
+ * Moves (a promotion suffix sets MoveFlag::MV_PROMO; the per-fixture EP list sets MoveFlag::MV_EP).
  * This is NOT production UCI parsing.
  */
 #include "movegen/movegen.hpp"
@@ -37,7 +37,7 @@ enum { MG_CAP = 256 };
 /* ---- small test-only helpers --------------------------------------------- */
 
 /* Decode a coordinate string ("a1a2" or "a7a8q") into a Move. A promotion suffix
- * (n/b/r/q) sets MV_PROMO with the matching payload. Returns 0 if malformed. */
+ * (n/b/r/q) sets MoveFlag::MV_PROMO with the matching payload. Returns 0 if malformed. */
 static int coord_to_move(const char *s, Move *out) {
   size_t len = std::strlen(s);
   if (len < 4 || len > 5) return 0;
@@ -47,13 +47,13 @@ static int coord_to_move(const char *s, Move *out) {
   u32 flags = 0, promo = 0;
   if (len == 5) {
     switch (s[4]) {
-      case 'n': promo = KNIGHT; break;
-      case 'b': promo = BISHOP; break;
-      case 'r': promo = ROOK;   break;
-      case 'q': promo = QUEEN;  break;
+      case 'n': promo = to_under(PieceType::KNIGHT); break;
+      case 'b': promo = to_under(PieceType::BISHOP); break;
+      case 'r': promo = to_under(PieceType::ROOK);   break;
+      case 'q': promo = to_under(PieceType::QUEEN);  break;
       default:  return 0;
     }
-    flags = (u32)MV_PROMO;
+    flags = (u32)MoveFlag::MV_PROMO;
   }
   *out = make_move((Square)square_of(ff, fr), (Square)square_of(tf, tr), flags, promo);
   return 1;
@@ -78,12 +78,12 @@ static u8 mirror_cr(u8 cr) {
 static void pos_mirror(const Position *src, Position *dst) {
   std::memset(dst->mailbox, 0, SQ_NB);
   for (int s = 0; s < SQ_NB; s++) {
-    int p = src->mailbox[s];
+    int p = to_under(src->mailbox[s]);
     if (!p) continue;
     int f = file_of((Square)s), r = rank_of((Square)s);
-    dst->mailbox[square_of(f, 7 - r)] = (u8)(p ^ 8);
+    dst->mailbox[square_of(f, 7 - r)] = (Piece)(p ^ 8);
   }
-  dst->side    = (Color)(1 - src->side);
+  dst->side    = (Color)(1 - to_under(src->side));
   dst->cr      = mirror_cr(src->cr);
   dst->ep_sq   = (src->ep_sq < SQ_NB) ? reflect_sq(src->ep_sq) : (Square)NO_SQUARE;
   dst->halfmove = src->halfmove;
@@ -178,14 +178,14 @@ static void sort_moves(Move *a, size_t n) {
  *
  * `moves` is the complete pseudo-legal NON-castling set for the position (the
  * same set the mirror must reproduce, reflected). `ep_moves` lists the subset of
- * those that carry MV_EP (zero for the non-EP fixtures). All are white-to-move
+ * those that carry MoveFlag::MV_EP (zero for the non-EP fixtures). All are white-to-move
  * except where noted; the mirror is black-to-move.
  */
 typedef struct {
   const char *name;
   const char *fen;
   const char *moves;    /* complete expected set (space-separated coords) */
-  const char *ep_moves; /* the subset carrying MV_EP ("" = none)          */
+  const char *ep_moves; /* the subset carrying MoveFlag::MV_EP ("" = none)          */
 } Fixture;
 
 static const Fixture fixtures[] = {
@@ -239,7 +239,7 @@ enum { NB_FIXTURES = (int)(sizeof fixtures / sizeof fixtures[0]) };
 /* (qwc_begin already called) Compare the generated `got`/`ngot` against the
  * expected coord set. Verifies: the complete encoded Move set (order-independent
  * after sorting), no duplicates, and -- separately from the coordinates -- the
- * flag/payload semantics (MV_EP count, MV_PROMO count + range, no castling, no
+ * flag/payload semantics (MoveFlag::MV_EP count, MoveFlag::MV_PROMO count + range, no castling, no
  * mixed flags, no reserved bits, from != to, no null). Returns qwc_end(). */
 static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *ep_list) {
   Move exp[128]; size_t nexp = 0;
@@ -253,7 +253,7 @@ static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *
     QWC_TRUE(coord_to_move(mtoks[i], &m), "expected coord decodes");
     int is_ep = 0;
     for (int j = 0; j < et; j++) if (std::strcmp(etoks[j], mtoks[i]) == 0) { is_ep = 1; break; }
-    if (is_ep) m = make_move(move_from(m), move_to(m), (u32)MV_EP, 0u);
+    if (is_ep) m = make_move(move_from(m), move_to(m), (u32)MoveFlag::MV_EP, 0u);
     exp[nexp++] = m;
   }
 
@@ -280,10 +280,10 @@ static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *
     QWC_TRUE(move_repr_is_valid(got[i]), "no reserved bits set");
     QWC_TRUE(got[i] != 0u, "no null move");
     QWC_TRUE(move_from(got[i]) != move_to(got[i]), "from != to");
-    QWC_TRUE((fl & MV_CASTLE) == 0, "no castling in this layer");
-    QWC_TRUE((fl & (MV_EP | MV_PROMO)) != (MV_EP | MV_PROMO), "no mixed EP|PROMO flags");
-    if (fl & MV_EP)          { nep++; QWC_EQ_I((int)pr, 0, "EP has zero promo payload"); }
-    else if (fl & MV_PROMO)  { npr++; QWC_TRUE(pr >= KNIGHT && pr <= QUEEN, "promo payload in N..Q"); }
+    QWC_TRUE((fl & to_under(MoveFlag::MV_CASTLE)) == 0, "no castling in this layer");
+    QWC_TRUE((fl & (to_under(MoveFlag::MV_EP) | to_under(MoveFlag::MV_PROMO))) != (to_under(MoveFlag::MV_EP) | to_under(MoveFlag::MV_PROMO)), "no mixed EP|PROMO flags");
+    if (fl & to_under(MoveFlag::MV_EP))          { nep++; QWC_EQ_I((int)pr, 0, "EP has zero promo payload"); }
+    else if (fl & to_under(MoveFlag::MV_PROMO))  { npr++; QWC_TRUE(pr >= to_under(PieceType::KNIGHT) && pr <= to_under(PieceType::QUEEN), "promo payload in N..Q"); }
     else                     { QWC_EQ_I((int)pr, 0, "quiet move has zero payload"); }
   }
   QWC_EQ_I(nep, et, "MV_EP count == expected EP moves");
@@ -311,7 +311,7 @@ static int t_fixtures(void) {
     std::snprintf(tag, sizeof tag, "mg.%s.mirror", fixtures[i].name);
     qwc_begin(tag);
     Position mp; pos_mirror(&pos, &mp);
-    QWC_EQ_I((int)mp.side, (int)(1 - pos.side), "mirror flips the side");
+    QWC_EQ_I((int)mp.side, (int)(1 - to_under(pos.side)), "mirror flips the side");
     QWC_TRUE(pos_validate(&mp, &why), "mirror validates");
     char mref[512], eref[512];
     reflect_moveset(fixtures[i].moves, mref);
@@ -378,7 +378,7 @@ static int t_boundary(void) {
       QWC_TRUE(fen_load(&pos, fens[k], &why) == 1, "load");
       Move out[MG_CAP]; size_t n = 0;
       QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "gen");
-      QWC_TRUE(has_move(out, n, e5, d6, (u32)MV_EP, 0u), "e5d6 (EP) present despite pin/king exposure");
+      QWC_TRUE(has_move(out, n, e5, d6, (u32)MoveFlag::MV_EP, 0u), "e5d6 (EP) present despite pin/king exposure");
     }
   }
   fail |= qwc_end();

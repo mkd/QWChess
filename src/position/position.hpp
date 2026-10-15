@@ -49,16 +49,16 @@ constexpr u16 POS_HM_MAX = std::numeric_limits<u16>::max();
 
 struct Position {
   /* -- inputs (set by a setup path; T004 make/unmake) -- */
-  u8            mailbox[SQ_NB];  /* Piece (0 = empty); the authoritative board */
-  Color         side;            /* side to move: WHITE / BLACK */
+  Piece         mailbox[SQ_NB];  /* Piece (Piece::NO_PIECE = empty); the authoritative board */
+  Color         side;            /* side to move: Color::WHITE / Color::BLACK */
   u8            cr;              /* castling rights: CR_* (0..15) */
   Square        ep_sq;           /* recorded ep target square, or NO_SQUARE */
   HalfMoveClock halfmove;        /* rule-50 clock (validated [0,POS_HM_MAX]) */
   FullMoveNumber fullmove;       /* FEN fullmove number, 1-based (>= 1) */
   /* -- derived caches (recomputed by pos_rebuild; never trusted as inputs) -- */
   u64           byPiece[PIECE_NB]; /* one bitboard per piece (1..15) */
-  u64           byColor[COLOR_NB]; /* WHITE / BLACK occupancy */
-  u64           occ;             /* byColor[WHITE] | byColor[BLACK] */
+  u64           byColor[COLOR_NB]; /* Color::WHITE / Color::BLACK occupancy */
+  u64           occ;             /* byColor[Color::WHITE] | byColor[Color::BLACK] */
   Square        wKingSq, bKingSq;  /* king squares, or NO_SQUARE */
   u64           key;             /* zobrist position key (canonical ep) */
   /* -- repetition history (T004 cp5). A NON-OWNING pointer to the latest
@@ -73,7 +73,7 @@ struct Position {
 };
 
 /* Cold setup / rebuild. */
-void pos_reset(Position *pos);          /* empty board, side WHITE, all rights 0 */
+void pos_reset(Position *pos);          /* empty board, side Color::WHITE, all rights 0 */
 void pos_set_startpos(Position *pos);   /* orthodox start: W, CR_ALL, no ep, hm 0, fm 1 */
 
 /* Recompute every derived field (bitboards, occupancy, king squares, key) from

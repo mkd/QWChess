@@ -60,11 +60,11 @@ struct Position;
 struct StateInfo;
 
 /* One board-square change: the square and its piece before and after the move.
- * NO_PIECE in a field means that square was / is empty. */
+ * Piece::NO_PIECE in a field means that square was / is empty. */
 struct SquareEdit {
   Square  sq;     /* the square that changes (0..63) */
-  Piece   before; /* piece occupying sq before the move (NO_PIECE if empty) */
-  Piece   after;  /* piece occupying sq after  the move (NO_PIECE if empty) */
+  Piece   before; /* piece occupying sq before the move (Piece::NO_PIECE if empty) */
+  Piece   after;  /* piece occupying sq after  the move (Piece::NO_PIECE if empty) */
 };
 
 /* Bounded capacity. 2 edits cover every move supported by checkpoint 1
@@ -94,7 +94,7 @@ struct MoveDelta {
 struct StateInfo {
   MoveDelta  delta;        /* reversible piece changes (0 edits for a null) */
   u64        prev_key;     /* position key before the move */
-  u8         prev_side;    /* side to move before */
+  Color      prev_side;    /* side to move before */
   u8         prev_cr;      /* castling rights before */
   Square     prev_ep;      /* exact RECORDED ep square before, or NO_SQUARE */
   u16        prev_halfmove;/* rule-50 clock before (full width) */

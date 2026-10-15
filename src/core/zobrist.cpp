@@ -31,8 +31,8 @@ void zobrist_init(void) {
       for (int p = 0; p < PIECE_NB; p++)
         g_piece[p][(r << 3) | f] = splitmix64(&st);
 
-  g_side[WHITE] = 0;             /* white to move contributes the identity */
-  g_side[BLACK] = splitmix64(&st);
+  g_side[to_under(Color::WHITE)] = 0;             /* white to move contributes the identity */
+  g_side[to_under(Color::BLACK)] = splitmix64(&st);
 
   for (int i = 0; i < 16; i++) g_castling[i] = splitmix64(&st);
   for (int f = 0; f < FILE_NB; f++) g_epfile[f] = splitmix64(&st);
@@ -44,11 +44,11 @@ static void ensure(void) { if (!g_inited) zobrist_init(); }
 
 u64 zobrist_piece(Piece p, Square sq) {
   ensure();
-  return (p < PIECE_NB && sq < SQ_NB) ? g_piece[p][sq] : 0;
+  return (to_under(p) < PIECE_NB && sq < SQ_NB) ? g_piece[to_under(p)][sq] : 0;
 }
 u64 zobrist_side(Color c) {
   ensure();
-  return (c < COLOR_NB) ? g_side[c] : 0;   /* WHITE -> 0, BLACK -> key */
+  return (to_under(c) < COLOR_NB) ? g_side[to_under(c)] : 0;   /* Color::WHITE -> 0, Color::BLACK -> key */
 }
 u64 zobrist_castling(u8 rights) { ensure(); return g_castling[rights & 0xF]; }
 u64 zobrist_ep_file(int file) {
@@ -56,14 +56,14 @@ u64 zobrist_ep_file(int file) {
   return (file >= 0 && file < FILE_NB) ? g_epfile[file] : 0;
 }
 
-u64 zobrist_compute(const u8 mailbox[64], Color side, u8 rights, int ep_file) {
+u64 zobrist_compute(const Piece *mailbox, Color side, u8 rights, int ep_file) {
   ensure();
   u64 h = 0;
   for (int s = 0; s < SQ_NB; s++) {
-    int p = mailbox[s];
+    int p = to_under(mailbox[s]);
     if (p && p < PIECE_NB) h ^= g_piece[p][s];
   }
-  h ^= (side < COLOR_NB) ? g_side[side] : 0;
+  h ^= (to_under(side) < COLOR_NB) ? g_side[to_under(side)] : 0;
   h ^= g_castling[rights & 0xF];
   if (ep_file >= 0 && ep_file < FILE_NB) h ^= g_epfile[ep_file];
   return h;

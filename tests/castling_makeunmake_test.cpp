@@ -96,8 +96,8 @@ static Position mkpos(Color side, int cr, int hm, int fm, int ep, const PC *pcs,
 /* The standard castling fixture: both home rooks + both kings on their home
  * squares (a1 e1 h1 / a8 e8 h8), everything else empty. */
 static const PC std6[6] = {
-  { 0,  W_ROOK }, { 4,  W_KING }, { 7,  W_ROOK },
-  { 56, B_ROOK }, { 60, B_KING }, { 63, B_ROOK },
+  { 0,  Piece::W_ROOK }, { 4,  Piece::W_KING }, { 7,  Piece::W_ROOK },
+  { 56, Piece::B_ROOK }, { 60, Piece::B_KING }, { 63, Piece::B_ROOK },
 };
 /* Build the standard 6-piece board with a given side/cr/counters. */
 static Position castle_board(Color side, int cr, int hm, int fm) {
@@ -154,20 +154,20 @@ static int t_exact_one(const char *tag, const char *before, Move m,
   qwc_begin(tag);
   Position pos; StateInfo st; const char *why = nullptr; char buf[FEN_BUF_SIZE];
   std::memset(&st, 0, sizeof st);
-  int hrank = (king == W_KING) ? RANK_1 : RANK_8;
+  int hrank = (king == Piece::W_KING) ? RANK_1 : RANK_8;
   Square kfrom = sq_of(kf, kr), rfrom = sq_of(rf, rr);
   Square kto = sq_of(kto_f, hrank), rto = sq_of(rto_f, hrank);
-  int other_home = (king == W_KING) ? 60 : 4;   /* e8 (black) or e1 (white) */
+  int other_home = (king == Piece::W_KING) ? 60 : 4;   /* e8 (black) or e1 (white) */
   QWC_TRUE(fen_load(&pos, before, &why) == 1, "load before");
   Position base = pos;
   QWC_TRUE(pos_make_move(&pos, &st, m) == 1, "castle accepted");
-  QWC_EQ_I((int)pos.mailbox[kfrom], (int)NO_PIECE, "king origin now empty");
-  QWC_EQ_I((int)pos.mailbox[rfrom], (int)NO_PIECE, "rook origin now empty");
+  QWC_EQ_I((int)pos.mailbox[kfrom], (int)Piece::NO_PIECE, "king origin now empty");
+  QWC_EQ_I((int)pos.mailbox[rfrom], (int)Piece::NO_PIECE, "rook origin now empty");
   QWC_EQ_I((int)pos.mailbox[kto], (int)king, "king relocated to destination");
   QWC_EQ_I((int)pos.mailbox[rto], (int)rook, "rook relocated to destination");
   QWC_EQ_I(st.delta.edit_count, 4, "four square edits");
-  QWC_EQ_I((int)((king == W_KING) ? pos.wKingSq : pos.bKingSq), (int)kto, "moving king cache updated");
-  QWC_EQ_I((int)((king == W_KING) ? pos.bKingSq : pos.wKingSq), other_home, "other king square preserved");
+  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.wKingSq : pos.bKingSq), (int)kto, "moving king cache updated");
+  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.bKingSq : pos.wKingSq), other_home, "other king square preserved");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "caches/key == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "result validates (safe)");
   QWC_TRUE(fen_emit(&pos, buf, (int)sizeof buf) == 1, "emit after");
@@ -181,23 +181,23 @@ static int t_exact(void) {
   int fail = 0;
   /* White kingside: e1->g1, h1->f1. */
   fail |= t_exact_one("castle.W_kingside", FEN_BEFORE_W,
-                      mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE),
-                      FILE_E,RANK_1,FILE_H,RANK_1, FILE_G,FILE_F, W_KING,W_ROOK,
+                      mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)),
+                      FILE_E,RANK_1,FILE_H,RANK_1, FILE_G,FILE_F, Piece::W_KING,Piece::W_ROOK,
                       "r3k2r/8/8/8/8/8/8/R4RK1 b kq - 8 20");
   /* White queenside: e1->c1, a1->d1. */
   fail |= t_exact_one("castle.W_queenside", FEN_BEFORE_W,
-                      mvf(FILE_E,RANK_1,FILE_A,RANK_1,MV_CASTLE,NO_PIECE),
-                      FILE_E,RANK_1,FILE_A,RANK_1, FILE_C,FILE_D, W_KING,W_ROOK,
+                      mvf(FILE_E,RANK_1,FILE_A,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)),
+                      FILE_E,RANK_1,FILE_A,RANK_1, FILE_C,FILE_D, Piece::W_KING,Piece::W_ROOK,
                       "r3k2r/8/8/8/8/8/8/2KR3R b kq - 8 20");
   /* Black kingside: e8->g8, h8->f8. */
   fail |= t_exact_one("castle.B_kingside", FEN_BEFORE_B,
-                      mvf(FILE_E,RANK_8,FILE_H,RANK_8,MV_CASTLE,NO_PIECE),
-                      FILE_E,RANK_8,FILE_H,RANK_8, FILE_G,FILE_F, B_KING,B_ROOK,
+                      mvf(FILE_E,RANK_8,FILE_H,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)),
+                      FILE_E,RANK_8,FILE_H,RANK_8, FILE_G,FILE_F, Piece::B_KING,Piece::B_ROOK,
                       "r4rk1/8/8/8/8/8/8/R3K2R w KQ - 8 21");
   /* Black queenside: e8->c8, a8->d8. */
   fail |= t_exact_one("castle.B_queenside", FEN_BEFORE_B,
-                      mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE),
-                      FILE_E,RANK_8,FILE_A,RANK_8, FILE_C,FILE_D, B_KING,B_ROOK,
+                      mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)),
+                      FILE_E,RANK_8,FILE_A,RANK_8, FILE_C,FILE_D, Piece::B_KING,Piece::B_ROOK,
                       "2kr3r/8/8/8/8/8/8/R3K2R w KQ - 8 21");
   return fail;
 }
@@ -212,14 +212,14 @@ static int t_seq(void) {
   QWC_TRUE(fen_load(&pos, FEN_BEFORE_W, &why) == 1, "load before");
   Position base = pos;
   QWC_TRUE(fen_emit(&pos, buf, (int)sizeof buf) == 1 && std::strcmp(buf, FEN_BEFORE_W) == 0, "before FEN round-trips");
-  QWC_TRUE(pos_make_move(&pos, &s0, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE)) == 1, "W e1h1");
+  QWC_TRUE(pos_make_move(&pos, &s0, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "W e1h1");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "after W: caches/key == rebuild");
   char mid[FEN_BUF_SIZE];
   QWC_TRUE(fen_emit(&pos, mid, (int)sizeof mid) == 1, "emit mid");
   Position midpos;
   QWC_TRUE(fen_load(&midpos, mid, &why) == 1, "mid FEN loads");
   QWC_TRUE(pos_equal(&midpos, &pos), "mid FEN round-trips to same pos");
-  QWC_TRUE(pos_make_move(&pos, &s1, mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE)) == 1, "B e8a8");
+  QWC_TRUE(pos_make_move(&pos, &s1, mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "B e8a8");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "final: caches/key == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "final validates");
   QWC_TRUE(fen_emit(&pos, buf, (int)sizeof buf) == 1, "emit final");
@@ -234,7 +234,7 @@ static int t_seq(void) {
 }
 
 /* The 8 named castling-right combinations: -, K, Q, KQ, k, q, kq, KQkq. On a
- * full home board a WHITE kingside castle needs CR_WK; only the values that set
+ * full home board a Color::WHITE kingside castle needs CR_WK; only the values that set
  * it are accepted, and on acceptance both white rights clear while the black
  * rights (the opponent's) are preserved. */
 static int t_rights_opponent(void) {
@@ -242,9 +242,9 @@ static int t_rights_opponent(void) {
   static const int crs[8] = { CR_ALL, CR_WK, CR_WQ, CR_WK|CR_WQ, CR_BK, CR_BQ, CR_BK|CR_BQ, 0 };
   for (int i = 0; i < 8; i++) {
     int cr = crs[i];
-    Position pos = castle_board(WHITE, cr, 7, 20);
+    Position pos = castle_board(Color::WHITE, cr, 7, 20);
     StateInfo st; std::memset(&st, 0, sizeof st);
-    Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE);
+    Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE));
     const char *why = nullptr;
     if (cr & CR_WK) {
       QWC_TRUE(pos_make_move(&pos, &st, m) == 1, "accepted (right present)");
@@ -265,10 +265,10 @@ static int t_rights_opponent(void) {
 static int t_rights_keys(void) {
   qwc_begin("castle.rights_16");
   for (int cr = 0; cr < 16; cr++) {
-    Position pos = castle_board(WHITE, cr, 7, 20);
+    Position pos = castle_board(Color::WHITE, cr, 7, 20);
     Position base = pos;
     StateInfo st; std::memset(&st, 0, sizeof st);
-    Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE);
+    Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE));
     const char *why = nullptr;
     if (cr & CR_WK) {
       QWC_TRUE(pos_make_move(&pos, &st, m) == 1, "accepted");
@@ -288,63 +288,63 @@ static int t_rights_keys(void) {
 static int t_reject(void) {
   int fail = 0;
   /* Missing the corresponding right (king + home rook are correctly in place). */
-  fail |= reject_mkpos_case("castle.rej.no_WK", WHITE, CR_WQ, 7, 20, NO_SQUARE, std6, 6,
-                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_mkpos_case("castle.rej.no_WQ", WHITE, CR_WK, 7, 20, NO_SQUARE, std6, 6,
-                            mvf(FILE_E,RANK_1,FILE_A,RANK_1,MV_CASTLE,NO_PIECE));
+  fail |= reject_mkpos_case("castle.rej.no_WK", Color::WHITE, CR_WQ, 7, 20, NO_SQUARE, std6, 6,
+                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_mkpos_case("castle.rej.no_WQ", Color::WHITE, CR_WK, 7, 20, NO_SQUARE, std6, 6,
+                            mvf(FILE_E,RANK_1,FILE_A,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* Friendly rook present at the destination but the right is absent. */
-  static const PC rok_nor[3] = { {4,W_KING},{7,W_ROOK},{60,B_KING} };
-  fail |= reject_mkpos_case("castle.rej.rook_no_right", WHITE, 0, 7, 20, NO_SQUARE, rok_nor, 3,
-                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
+  static const PC rok_nor[3] = { {4,Piece::W_KING},{7,Piece::W_ROOK},{60,Piece::B_KING} };
+  fail |= reject_mkpos_case("castle.rej.rook_no_right", Color::WHITE, 0, 7, 20, NO_SQUARE, rok_nor, 3,
+                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* King absent / moved from the origin while the right is still claimed. */
-  static const PC kng_moved[4] = { {3,W_KING},{7,W_ROOK},{0,W_ROOK},{60,B_KING} };
-  fail |= reject_mkpos_case("castle.rej.king_moved", WHITE, CR_WK, 7, 20, NO_SQUARE, kng_moved, 4,
-                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
+  static const PC kng_moved[4] = { {3,Piece::W_KING},{7,Piece::W_ROOK},{0,Piece::W_ROOK},{60,Piece::B_KING} };
+  fail |= reject_mkpos_case("castle.rej.king_moved", Color::WHITE, CR_WK, 7, 20, NO_SQUARE, kng_moved, 4,
+                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* Home rook absent (f1 empty, no rook on h1) while the right is present. */
-  static const PC no_rook[4] = { {4,W_KING},{0,W_ROOK},{60,B_KING},{56,B_ROOK} };
-  fail |= reject_mkpos_case("castle.rej.rook_absent", WHITE, CR_WK, 7, 20, NO_SQUARE, no_rook, 4,
-                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
+  static const PC no_rook[4] = { {4,Piece::W_KING},{0,Piece::W_ROOK},{60,Piece::B_KING},{56,Piece::B_ROOK} };
+  fail |= reject_mkpos_case("castle.rej.rook_absent", Color::WHITE, CR_WK, 7, 20, NO_SQUARE, no_rook, 4,
+                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* Opponent to move: the encoded move is the other side's. */
   fail |= reject_fen_case("castle.rej.wrong_side", FEN_BEFORE_B,
-                          mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
+                          mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* An enemy king sits on the (empty) king destination. */
-  static const PC eking[3] = { {4,W_KING},{7,W_ROOK},{6,B_KING} };   /* black king on g1 */
-  fail |= reject_mkpos_case("castle.rej.eking_dest", WHITE, CR_WK, 7, 20, NO_SQUARE, eking, 3,
-                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
+  static const PC eking[3] = { {4,Piece::W_KING},{7,Piece::W_ROOK},{6,Piece::B_KING} };   /* black king on g1 */
+  fail |= reject_mkpos_case("castle.rej.eking_dest", Color::WHITE, CR_WK, 7, 20, NO_SQUARE, eking, 3,
+                            mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* Each required path square blocked (kingside f/g, queenside b/c/d), both
    * colors. The blocker is the opponent's pawn; only that square is occupied. */
   PC blk[7];
 #define BLK(tag, side, bfs, mov) do { \
     for (int _i = 0; _i < 6; _i++) blk[_i] = std6[_i]; \
-    blk[6].sq = bfs; blk[6].pc = (side == WHITE) ? B_PAWN : W_PAWN; \
+    blk[6].sq = bfs; blk[6].pc = (side == Color::WHITE) ? Piece::B_PAWN : Piece::W_PAWN; \
     fail |= reject_mkpos_case(tag, side, CR_ALL, 7, 20, NO_SQUARE, blk, 7, mov); \
   } while (0)
-  BLK("castle.rej.block_f1",  WHITE, sq_of(FILE_F,RANK_1), mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_g1",  WHITE, sq_of(FILE_G,RANK_1), mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_b1",  WHITE, sq_of(FILE_B,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_c1",  WHITE, sq_of(FILE_C,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_d1",  WHITE, sq_of(FILE_D,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_f8",  BLACK, sq_of(FILE_F,RANK_8), mvf(FILE_E,RANK_8,FILE_H,RANK_8,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_g8",  BLACK, sq_of(FILE_G,RANK_8), mvf(FILE_E,RANK_8,FILE_H,RANK_8,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_b8",  BLACK, sq_of(FILE_B,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_c8",  BLACK, sq_of(FILE_C,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE));
-  BLK("castle.rej.block_d8",  BLACK, sq_of(FILE_D,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE));
+  BLK("castle.rej.block_f1",  Color::WHITE, sq_of(FILE_F,RANK_1), mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_g1",  Color::WHITE, sq_of(FILE_G,RANK_1), mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_b1",  Color::WHITE, sq_of(FILE_B,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_c1",  Color::WHITE, sq_of(FILE_C,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_d1",  Color::WHITE, sq_of(FILE_D,RANK_1), mvf(FILE_E,RANK_1,FILE_A,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_f8",  Color::BLACK, sq_of(FILE_F,RANK_8), mvf(FILE_E,RANK_8,FILE_H,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_g8",  Color::BLACK, sq_of(FILE_G,RANK_8), mvf(FILE_E,RANK_8,FILE_H,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_b8",  Color::BLACK, sq_of(FILE_B,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_c8",  Color::BLACK, sq_of(FILE_C,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  BLK("castle.rej.block_d8",  Color::BLACK, sq_of(FILE_D,RANK_8), mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
 #undef BLK
   /* Wrong rook square / non-orthodox spellings / king-to-king: all reject. */
-  fail |= reject_fen_case("castle.rej.to_f1",  FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_F,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.e1g1",   FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_G,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.e1c1",   FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_C,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.a1h1",   FEN_BEFORE_W, mvf(FILE_A,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.h1e1",   FEN_BEFORE_W, mvf(FILE_H,RANK_1,FILE_E,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.d1e1",   FEN_BEFORE_W, mvf(FILE_D,RANK_1,FILE_E,RANK_1,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.e8g8",   FEN_BEFORE_B, mvf(FILE_E,RANK_8,FILE_G,RANK_8,MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.a8h8",   FEN_BEFORE_B, mvf(FILE_A,RANK_8,FILE_H,RANK_8,MV_CASTLE,NO_PIECE));
+  fail |= reject_fen_case("castle.rej.to_f1",  FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_F,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.e1g1",   FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_G,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.e1c1",   FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_C,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.a1h1",   FEN_BEFORE_W, mvf(FILE_A,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.h1e1",   FEN_BEFORE_W, mvf(FILE_H,RANK_1,FILE_E,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.d1e1",   FEN_BEFORE_W, mvf(FILE_D,RANK_1,FILE_E,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.e8g8",   FEN_BEFORE_B, mvf(FILE_E,RANK_8,FILE_G,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.a8h8",   FEN_BEFORE_B, mvf(FILE_A,RANK_8,FILE_H,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   /* Mixed flags and a nonzero promotion payload. */
-  fail |= reject_fen_case("castle.rej.flags_ep",    FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_EP|MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.flags_promo", FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_PROMO|MV_CASTLE,NO_PIECE));
-  fail |= reject_fen_case("castle.rej.promo",       FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,QUEEN));
+  fail |= reject_fen_case("castle.rej.flags_ep",    FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_EP)|to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.flags_promo", FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_PROMO)|to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
+  fail |= reject_fen_case("castle.rej.promo",       FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(PieceType::QUEEN)));
   /* from == to. */
-  fail |= reject_fen_case("castle.rej.samesq",      FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_E,RANK_1,MV_CASTLE,NO_PIECE));
+  fail |= reject_fen_case("castle.rej.samesq",      FEN_BEFORE_W, mvf(FILE_E,RANK_1,FILE_E,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE)));
   return fail;
 }
 
@@ -356,43 +356,43 @@ static int t_counters(void) {
   Position pos; StateInfo st; Position base; const char *why = nullptr;
 
   /* 1. White e1h1 from halfmove 65534 -> accepted, 65534 -> 65535. */
-  pos = castle_board(WHITE, CR_ALL, 65534, 20); base = pos;
+  pos = castle_board(Color::WHITE, CR_ALL, 65534, 20); base = pos;
   std::memset(&st, 0, sizeof st);
-  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE)) == 1, "W e1h1 hm65534 accepted");
+  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "W e1h1 hm65534 accepted");
   QWC_EQ_I((int)pos.halfmove, 65535, "halfmove 65534 -> 65535");
   QWC_EQ_I((int)pos.fullmove, 20, "white fullmove unchanged");
   pos_unmake_move(&pos, &st);
   QWC_TRUE(pos_equal(&pos, &base), "restored (1)");
 
   /* 2. White e1h1 from halfmove 65535 -> rejected (overflow). */
-  pos = castle_board(WHITE, CR_ALL, 65535, 20); base = pos;
+  pos = castle_board(Color::WHITE, CR_ALL, 65535, 20); base = pos;
   std::memset(&st, 0, sizeof st);
   StateInfo st0 = st;
-  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE)) == 0, "W e1h1 hm65535 rejected");
+  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 0, "W e1h1 hm65535 rejected");
   QWC_TRUE(pos_equal(&pos, &base), "pos unchanged (2)");
   QWC_TRUE(state_equal(&st, &st0), "state unchanged (2)");
 
   /* 3. Black e8a8 from fullmove 65534 -> accepted, 65534 -> 65535. */
-  pos = castle_board(BLACK, CR_ALL, 7, 65534); base = pos;
+  pos = castle_board(Color::BLACK, CR_ALL, 7, 65534); base = pos;
   std::memset(&st, 0, sizeof st);
-  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE)) == 1, "B e8a8 fm65534 accepted");
+  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "B e8a8 fm65534 accepted");
   QWC_EQ_I((int)pos.fullmove, 65535, "fullmove 65534 -> 65535");
   QWC_EQ_I((int)pos.halfmove, 8, "halfmove 7 -> 8 (quiet)");
   pos_unmake_move(&pos, &st);
   QWC_TRUE(pos_equal(&pos, &base), "restored (3)");
 
   /* 4. Black e8a8 from fullmove 65535 -> rejected (overflow). */
-  pos = castle_board(BLACK, CR_ALL, 7, 65535); base = pos;
+  pos = castle_board(Color::BLACK, CR_ALL, 7, 65535); base = pos;
   std::memset(&st, 0, sizeof st);
   st0 = st;
-  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_8,FILE_A,RANK_8,MV_CASTLE,NO_PIECE)) == 0, "B e8a8 fm65535 rejected");
+  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_8,FILE_A,RANK_8,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 0, "B e8a8 fm65535 rejected");
   QWC_TRUE(pos_equal(&pos, &base), "pos unchanged (4)");
   QWC_TRUE(state_equal(&st, &st0), "state unchanged (4)");
 
   /* 5. White e1h1 at fullmove 65535 -> accepted (white does not increment it). */
-  pos = castle_board(WHITE, CR_ALL, 7, 65535); base = pos;
+  pos = castle_board(Color::WHITE, CR_ALL, 7, 65535); base = pos;
   std::memset(&st, 0, sizeof st);
-  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE)) == 1, "W e1h1 fm65535 accepted");
+  QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "W e1h1 fm65535 accepted");
   QWC_EQ_I((int)pos.fullmove, 65535, "white fullmove stays 65535");
   QWC_EQ_I((int)pos.halfmove, 8, "halfmove 7 -> 8");
   pos_unmake_move(&pos, &st);
@@ -421,7 +421,7 @@ static int t_epclear(void) {
     Position base = pos;
     QWC_EQ_I((int)pos.ep_sq, (int)d6, "before: raw ep = d6");
     QWC_EQ_I((int)pos.halfmove, 0, "before: halfmove 0");
-    QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,MV_CASTLE,NO_PIECE)) == 1, "W e1h1 accepted");
+    QWC_TRUE(pos_make_move(&pos, &st, mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE))) == 1, "W e1h1 accepted");
     QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "after: raw ep cleared");
     QWC_EQ_I((int)pos.halfmove, 1, "after: halfmove 0 -> 1");
     QWC_TRUE(derived_match_rebuild(&pos, &why), "after: caches/key == rebuild");
@@ -454,11 +454,11 @@ static int t_epclear(void) {
  *     high reserved bits 19..31 (pos + state byte-for-byte unchanged).
  */
 
-/* Flip a color (WHITE=0 / BLACK=1). */
+/* Flip a color (Color::WHITE=0 / Color::BLACK=1). */
 static Color cother(Color c) { return (Color)(1 - (int)c); }
 
 /* Flip a piece's color. W_<p> and B_<p> differ by 8 (bit 3: W 1..6 / B 9..14). */
-static Piece mirror_piece(Piece p) { return (Piece)(p ^ 8); }
+static Piece mirror_piece(Piece p) { return (Piece)(to_under(p) ^ 8); }
 
 /* Rank-reflect a square (file kept, rank 0<->7, 1<->6, ...). */
 static Square mirror_sq(Square s) {
@@ -473,7 +473,7 @@ static void mirror_pos(const Position *in, Position *out) {
   pos_reset(out);
   for (int s = 0; s < SQ_NB; s++) {
     Piece p = in->mailbox[s];
-    if (p == NO_PIECE)
+    if (p == Piece::NO_PIECE)
       continue;
     out->mailbox[mirror_sq((Square)s)] = mirror_piece(p);   /* flip the color   */
   }
@@ -497,9 +497,9 @@ static int t_attacked_one(const char *tag, const char *fen, Move m) {
   Position base = pos;
   Square rfrom = move_to(m);
   Color side = pos.side;
-  Piece king = (side == WHITE) ? W_KING : B_KING;
-  Piece rook = (side == WHITE) ? W_ROOK : B_ROOK;
-  int home = (side == WHITE) ? RANK_1 : RANK_8;
+  Piece king = (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING;
+  Piece rook = (side == Color::WHITE) ? Piece::W_ROOK : Piece::B_ROOK;
+  int home = (side == Color::WHITE) ? RANK_1 : RANK_8;
   int kingside = (file_of(rfrom) == FILE_H);
   Square king_dest = square_of((Square)(kingside ? FILE_G : FILE_C), (Square)home);
   Square rook_dest = square_of((Square)(kingside ? FILE_F : FILE_D), (Square)home);
@@ -516,7 +516,7 @@ static int t_attacked_one(const char *tag, const char *fen, Move m) {
   /* the rank-reflect / color-swap mirror */
   Position mpos; mirror_pos(&base, &mpos);
   Position mbase = mpos;
-  Move mm = make_move(mirror_sq(move_from(m)), mirror_sq(rfrom), MV_CASTLE, 0);
+  Move mm = make_move(mirror_sq(move_from(m)), mirror_sq(rfrom), MoveFlag::MV_CASTLE, 0);
   std::memset(&st, 0, sizeof st);
   QWC_TRUE(pos_make_move(&mpos, &st, mm) == 1, "mirrored castle accepted");
   QWC_TRUE(derived_match_rebuild(&mpos, &why), "mirror after: derived/key == rebuild");
@@ -531,8 +531,8 @@ static int t_attacked_one(const char *tag, const char *fen, Move m) {
 
 static int t_attacked(void) {
   int fail = 0;
-  Move e1h1 = mvf(FILE_E, RANK_1, FILE_H, RANK_1, MV_CASTLE, NO_PIECE);
-  Move e1a1 = mvf(FILE_E, RANK_1, FILE_A, RANK_1, MV_CASTLE, NO_PIECE);
+  Move e1h1 = mvf(FILE_E, RANK_1, FILE_H, RANK_1, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE));
+  Move e1a1 = mvf(FILE_E, RANK_1, FILE_A, RANK_1, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE));
   fail |= t_attacked_one("castle.attk_e1_atk", "k3r3/8/8/8/8/8/8/4K2R w K - 7 20", e1h1);  /* origin attacked */
   fail |= t_attacked_one("castle.attk_f1_atk", "k4r2/8/8/8/8/8/8/4K2R w K - 7 20", e1h1);  /* transit f1 attacked */
   fail |= t_attacked_one("castle.attk_g1_atk", "k5r1/8/8/8/8/8/8/4K2R w K - 7 20", e1h1);  /* transit g1 attacked */
@@ -550,7 +550,7 @@ static int t_reserved(void) {
   const char *why = nullptr;
   Position pos;
   QWC_TRUE(fen_load(&pos, fen, &why) == 1, "fixture loads");
-  Move base_mv = mvf(FILE_E, RANK_1, FILE_H, RANK_1, MV_CASTLE, NO_PIECE);
+  Move base_mv = mvf(FILE_E, RANK_1, FILE_H, RANK_1, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE));
   assert_reject(&pos, (Move)(base_mv | (1u << 15)));   /* reserved bit 15      */
   assert_reject(&pos, (Move)(base_mv | (1u << 19)));   /* lowest high reserved  */
   assert_reject(&pos, (Move)(base_mv | (1u << 20)));   /* a high reserved bit   */

@@ -208,10 +208,18 @@ retained); clock → `std::chrono::steady_clock`; `POS_HM_MAX`/`FEN_BUF_SIZE`/`B
 15/15 release + 15/15 debug; portable bit path green; struct size/alignment unchanged;
 docs flipped off C17. (Sanitizer normal target is host-runner-limited — see STATE.)
 
-### CPP20-2 — scoped enums with explicit underlying types  ← **NEXT**
+### CPP20-2 — scoped enums with explicit underlying types  ✅ DONE (this commit)
 Convert `Color`, `PieceType`, `Piece` (and the `MoveFlag` values where clean) to
-fixed-width **scoped** enums, preserving every numeric value, `ALL_PIECES`/`NO_*`
-sentinels and all static_asserts. Verify no narrowing and the size/alignment contract.
+fixed-width **scoped** enums (`enum class X : u8`; `MoveFlag : u32`), preserving every
+numeric value, `ALL_PIECES`/`NO_*` sentinels and all static_asserts; the `*_NB` counts
+move to `constexpr int` (a scoped enum may only name real domain values). Every
+source/test value/byte/table-index/raw-bit boundary is re-expressed with `to_under`/
+`static_cast`; domain values stay typed. `Square` keeps the one-byte `u8` alias (0..63
++ `NO_SQUARE` sentinel — no per-square enumerators).
+**Exit gate (met):** `check-cpp20` 23 files; release+debug+sanitize builds 0 warnings
+(`-Wconversion -Wextra -Wall -Wshadow`); 15/15 tests, 184 PASS groups, 0 fail
+(1,145,555 checks); size/alignment contract unchanged (Position 248/8, StateInfo 48/8,
+MoveDelta 20/4, SquareEdit 3/1).
 
 ### CPP20-3 — storage modernization + interface cleanup + multi-arch validation
 Adopt `std::array` for fixed-size arrays and references/pointers for output
