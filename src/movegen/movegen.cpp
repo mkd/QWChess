@@ -20,7 +20,7 @@
 
 /* Append one move to `out` if there is room. Returns 0 on overflow (the caller
  * treats that as a hard stop) and never writes outside `capacity`. */
-static int mg_append(Move *out, size_t capacity, size_t *n, Move m) {
+static int mg_append(Move *out, std::size_t capacity, std::size_t *n, Move m) {
   if (*n >= capacity)
     return 0;
   out[*n] = m;
@@ -50,8 +50,8 @@ static u64 mg_dest_mask(const Position *pos, Square from, PieceType type,
  * promotions for each available push or capture. Returns 0 on capacity overflow
  * (hard stop), 1 otherwise. `dir` is +8 for white / -8 for black; `start_r` and
  * `promo_r` are the (0-indexed) start and promotion ranks for the side. */
-static int mg_gen_pawn(const Position *pos, Square from, Move *out, size_t capacity,
-                       size_t *n, int dir, int start_r, int promo_r,
+static int mg_gen_pawn(const Position *pos, Square from, Move *out, std::size_t capacity,
+                       std::size_t *n, int dir, int start_r, int promo_r,
                        u64 enemy, u64 enemy_king_bb) {
   const int f  = file_of(from);
   const int r  = rank_of(from);
@@ -105,15 +105,15 @@ static int mg_gen_pawn(const Position *pos, Square from, Move *out, size_t capac
   return 1;
 }
 
-int movegen_pseudo_noncastling(const Position *pos, Move *out, size_t capacity,
-                               size_t *count) {
+int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capacity,
+                               std::size_t *count) {
   if (pos == nullptr || out == nullptr) {
     if (count)
       *count = 0;
     return 0;
   }
 
-  size_t n = 0;
+  std::size_t n = 0;
   const Color   side    = pos->side;
   const u64     friendly = pos->byColor[to_under(side)];
   const u64     enemy    = pos->byColor[1 - to_under(side)];

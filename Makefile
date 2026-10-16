@@ -3,8 +3,9 @@
 #   make            build the release engine      (build/cpp20/release/)
 #   make debug      build the debug engine        (build/cpp20/debug/)
 #   make sanitize   build the ASan+UBSan engine   (build/cpp20/sanitize/)
-#   make test       build + run the tests (release flags)
-#   make test-sanitize  build + run the tests with ASan/UBSan (real instrumentation)
+#   make test       build + run the tests (honors CONFIG; release by default)
+#   make test CONFIG=debug|sanitize|release   build + run the tests in that config
+#   make test-sanitize  alias for the ASan/UBSan run (real instrumentation)
 #   make check-cpp20  strict -std=c++20 -pedantic-errors conformance gate over all sources
 #   make net        fetch + verify the NNUE network into networks/
 #   make test-net   run the net-checker self-test (negative + positive control)
@@ -36,14 +37,22 @@ CXXFLAGS_RELEASE := $(CPPSTD) -O2 -g -march=native
 CXXFLAGS_DEBUG   := $(CPPSTD) -O0 -g
 CXXFLAGS_SANIT   := $(CPPSTD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 
-ifneq ($(CONFIG),release)
-  ifneq ($(CONFIG),debug)
-    CXXFLAGS := $(CXXFLAGS_SANIT)
+# CONFIG is exactly one of release/debug/sanitize. Any other value is rejected
+# with a clear error instead of silently falling into the sanitizer flags (the
+# old `else` branch treated every unknown CONFIG as a sanitizer build).
+VALID_CONFIGS := release debug sanitize
+ifneq ($(filter $(CONFIG),$(VALID_CONFIGS)),)
+  ifneq ($(CONFIG),release)
+    ifneq ($(CONFIG),debug)
+      CXXFLAGS := $(CXXFLAGS_SANIT)   # the only valid value left (validated above)
+    else
+      CXXFLAGS := $(CXXFLAGS_DEBUG)
+    endif
   else
-    CXXFLAGS := $(CXXFLAGS_DEBUG)
+    CXXFLAGS := $(CXXFLAGS_RELEASE)
   endif
 else
-  CXXFLAGS := $(CXXFLAGS_RELEASE)
+  $(error Unknown CONFIG '$(CONFIG)'; expected one of: $(VALID_CONFIGS))
 endif
 
 SRC := src
@@ -96,7 +105,7 @@ TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TE
 DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d)
 
 .SUFFIXES:
-.PHONY: all release debug sanitize test test-sanitize check-cpp20 net test-net clean help
+.PHONY: all release debug sanitize test test-sanitize test-run all-config check-cpp20 net test-net clean help
 
 all: release
 
@@ -127,8 +136,9 @@ $(OBJ)/tests/%.o: tests/%.cpp | $(OBJ)
 $(OBJ) $(BIN):
 	mkdir -p $@
 
-# Per-configuration build + run of the tests. `test` runs under release flags;
-# `test-sanitize` runs the ASan/UBSan-instrumented binaries for real.
+# Per-configuration test binaries: built + linked with the current CONFIG's flags
+# (CXXFLAGS above) into build/cpp20/<config>/bin/. `test` / `test-sanitize` build
+# and run them (see the `test` target below for how CONFIG is honored).
 $(SCAFFOLD_TEST_BIN): $(SCAFFOLD_TEST_OBJ) | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(SCAFFOLD_TEST_OBJ)
 
@@ -174,8 +184,14 @@ $(REPETITION_TEST_BIN): $(REPETITION_TEST_OBJ) | $(BIN)
 $(MOVEGEN_TEST_BIN): $(MOVEGEN_TEST_OBJ) | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(MOVEGEN_TEST_OBJ)
 
+# `test` honors CONFIG (release by default): `make test CONFIG=debug` runs the debug
+# binaries, `make test CONFIG=sanitize` the ASan/UBSan-instrumented ones.
+# `test-sanitize` is the explicit alias for the instrumented run. CONFIG is validated
+# up front (see VALID_CONFIGS), so an unknown CONFIG is a hard error, not a silent
+# sanitizer build. The recursive make passes CONFIG explicitly so the child selects
+# the matching build/cpp20/<config>/ objects and flags.
 test:
-	$(MAKE) CONFIG=release test-run
+	$(MAKE) CONFIG=$(CONFIG) test-run
 test-sanitize:
 	$(MAKE) CONFIG=sanitize test-run
 test-run: $(TEST_BINS)
@@ -204,6 +220,6 @@ clean:
 	rm -rf build
 
 help:
-	@sed -n '2,13p' $(MAKEFILE_LIST)
+	@sed -n '2,16p' $(MAKEFILE_LIST)
 
 -include $(DEPS)

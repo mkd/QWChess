@@ -23,6 +23,7 @@
 #include "test_util.hpp"
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 
 /* Field-for-field equality of two Positions (inputs + derived caches). */
 static int pos_equal(const Position *a, const Position *b) {
@@ -149,7 +150,7 @@ static int t_reject(void) {
     "1nbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", /* CR_BQ unbacked (a8 empty) */
     "8/8/8/8/8/8/4k3/4K3 w - - 0 1",       /* adjacent kings e1/e2 */
   };
-  for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+  for (std::size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
     Position p = sentinel;
     QWC_TRUE(fen_load(&p, bad[i], &why) == 0, "rejected");
     QWC_TRUE(why != nullptr && why[0] != '\0', "rejection has a reason");
@@ -220,7 +221,7 @@ static int t_ep(void) {
 
   /* -- originals: load, placement, recorded ep, legality, canon, captors, key -- */
   qwc_begin("fen.ep");
-  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+  for (std::size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
     const EpCase *c = &cases[i];
     Position p; const char *why = nullptr;
     QWC_TRUE(fen_load(&p, c->fen, &why), "load (all eight must load)");
@@ -256,7 +257,7 @@ static int t_ep(void) {
 
   /* -- mirrors: rank-reflect + color-swap (black to move) keep canon + legality -- */
   qwc_begin("fen.ep.mirror");
-  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+  for (std::size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
     const EpCase *c = &cases[i];
     Position a, m; const char *why = nullptr;
     QWC_TRUE(fen_load(&a, c->fen, &why), "mirror: source loads");
@@ -272,7 +273,7 @@ static int t_ep(void) {
 
   /* -- emission + reload preserve the recorded target and the logical state -- */
   qwc_begin("fen.ep.roundtrip");
-  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+  for (std::size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
     const EpCase *c = &cases[i];
     Position a, b; const char *why = nullptr;
     char buf[FEN_BUF_SIZE];

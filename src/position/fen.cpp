@@ -17,6 +17,7 @@
 #include "core/types.hpp"
 #include "core/square.hpp"
 #include <cstring>
+#include <cstddef>
 
 /* ---- character <-> Piece (cold path; ASCII is the FEN character set) ---- */
 
@@ -53,7 +54,7 @@ static char char_from_piece(Piece p) {
 /* Split a FEN into six (pointer, length) fields. Requires exactly five single
  * spaces and six non-empty fields (so no leading/trailing/double spaces). Sets
  * *why on failure. Never mutates the input. */
-static int split_fields(const char *fen, const char **f, size_t *n, const char **why) {
+static int split_fields(const char *fen, const char **f, std::size_t *n, const char **why) {
   int nsp = 0;
   for (const char *p = fen; *p; p++)
     if (*p == ' ')
@@ -62,11 +63,11 @@ static int split_fields(const char *fen, const char **f, size_t *n, const char *
   const char *p = fen;
   for (int i = 0; i < 6; i++) {
     const char *sp;
-    size_t len;
+    std::size_t len;
     f[i] = p;
     sp = p;
     while (*sp && *sp != ' ') sp++;
-    len = (size_t)(sp - p);
+    len = (std::size_t)(sp - p);
     if (len == 0) { if (why) *why = "empty FEN field (edge or double space)"; return 0; }
     n[i] = len;
     p = (*sp) ? sp + 1 : sp;   /* advance past the space, or stop at the NUL */
@@ -79,11 +80,11 @@ static int split_fields(const char *fen, const char **f, size_t *n, const char *
 /* Parse the placement field into *mailbox. Eight ranks separated by '/', rank 8
  * first; each rank spans exactly 8 squares (digits 1-8 = empty squares, letters
  * = pieces). Returns 1 on success, 0 (and *why) on failure. */
-static int parse_placement(const char *s, size_t len, Piece *mailbox, const char **why) {
+static int parse_placement(const char *s, std::size_t len, Piece *mailbox, const char **why) {
   std::memset(mailbox, 0, SQ_NB);
   int rank = RANK_8;   /* FEN lists the 8th rank first, down to the 1st */
   int col  = 0;        /* squares placed on the current rank (0..8) */
-  for (size_t i = 0; i < len; i++) {
+  for (std::size_t i = 0; i < len; i++) {
     char c = s[i];
     if (c == '/') {
       if (col != 8) { if (why) *why = "a placement rank does not span 8 squares"; return 0; }
@@ -108,7 +109,7 @@ static int parse_placement(const char *s, size_t len, Piece *mailbox, const char
 }
 
 /* ---- field: side ---- */
-static int parse_side(const char *s, size_t len, Color *side, const char **why) {
+static int parse_side(const char *s, std::size_t len, Color *side, const char **why) {
   if (len == 1 && s[0] == 'w') { *side = Color::WHITE; return 1; }
   if (len == 1 && s[0] == 'b') { *side = Color::BLACK; return 1; }
   if (why) *why = "side must be 'w' or 'b'";
@@ -116,11 +117,11 @@ static int parse_side(const char *s, size_t len, Color *side, const char **why) 
 }
 
 /* ---- field: castling ("-" or any order of KQkq, no repeats) ---- */
-static int parse_castling(const char *s, size_t len, u8 *cr, const char **why) {
+static int parse_castling(const char *s, std::size_t len, u8 *cr, const char **why) {
   *cr = 0;
   if (len == 1 && s[0] == '-')
     return 1;
-  for (size_t i = 0; i < len; i++) {
+  for (std::size_t i = 0; i < len; i++) {
     u8 bit;
     switch (s[i]) {
       case 'K': bit = CR_WK; break;
@@ -142,7 +143,7 @@ static int parse_castling(const char *s, size_t len, u8 *cr, const char **why) {
  * empty destination, the enemy pawn, a vacant double-push origin, zero halfmove
  * clock) is enforced downstream by pos_validate. Only the *spelling* is checked
  * here. */
-static int parse_ep(const char *s, size_t len, Square *ep, const char **why) {
+static int parse_ep(const char *s, std::size_t len, Square *ep, const char **why) {
   if (len == 1 && s[0] == '-') { *ep = NO_SQUARE; return 1; }
   if (len != 2) { if (why) *why = "en-passant must be '-' or a two-letter square"; return 0; }
   if (s[0] < 'a' || s[0] > 'h') { if (why) *why = "en-passant file is out of range"; return 0; }
@@ -156,12 +157,12 @@ static int parse_ep(const char *s, size_t len, Square *ep, const char **why) {
 /* Parse a canonical, non-negative base-10 integer into *out, bounded by [0,max]:
  * at most `maxdigits` digits, all digits, no sign, and no leading zero (except
  * the single digit "0"). Returns 1 on success, 0 (and *why) otherwise. */
-static int parse_uint(const char *s, size_t len, int maxdigits, int max, int *out,
+static int parse_uint(const char *s, std::size_t len, int maxdigits, int max, int *out,
                       const char **why, const char *field) {
-  if (len == 0 || len > (size_t)maxdigits) { if (why) *why = field; return 0; }
+  if (len == 0 || len > (std::size_t)maxdigits) { if (why) *why = field; return 0; }
   if (s[0] == '0' && len > 1) { if (why) *why = "leading zero in counter"; return 0; }
   int v = 0;
-  for (size_t i = 0; i < len; i++) {
+  for (std::size_t i = 0; i < len; i++) {
     if (s[i] < '0' || s[i] > '9') { if (why) *why = "counter is not a plain number"; return 0; }
     v = v * 10 + (s[i] - '0');
     if (v > max) { if (why) *why = "counter out of range"; return 0; }
@@ -179,7 +180,7 @@ int fen_load(Position *pos, const char *fen, const char **why) {
   if (fen == nullptr) { if (why) *why = "nullptr FEN"; return 0; }
 
   const char *f[6];
-  size_t n[6];
+  std::size_t n[6];
   Position tmp;
   int v;
 

@@ -56,8 +56,9 @@ enum SquareSentinel { NO_SQUARE = SQ_NB };   /* "no square" sentinel = 64 */
  *      ease later NNUE feature-index differential testing, so the values are
  *      frozen compatibility requirements. NO_PIECE_TYPE and ALL_PIECES are the
  *      same underlying value 0 (no concrete type / the "all" slot). PIECE_TYPE_NB
- *      (8) is the 8-slot type-table extent, held OUTSIDE the class because it is
- *      not a legal piece type (a scoped enum may only name real domain values). */
+ *      (8) is the 8-slot type-table extent, held OUTSIDE the class as a project
+ *      design choice: a count is not a domain value we want in the enum. (A scoped
+ *      enum could technically name it -- this is a convention, not a language rule.) */
 enum class PieceType : u8 {
   NO_PIECE_TYPE = 0,
   PAWN   = 1,
@@ -73,8 +74,9 @@ constexpr int PIECE_TYPE_NB = 8;   /* type-table extent (NOT a piece type) */
 /* ---- Piece. One byte (u8). Encodes color + type in one value: a white piece is
  *      its type value (1..6) and a black piece is that +8 (9..14); NO_PIECE (0)
  *      is an empty square. Values mirror Stockfish and are frozen. PIECE_NB (16)
- *      is the 16-slot piece-table extent, held OUTSIDE the class; slots 7, 8 and
- *      15 are in-table but unnamed (the Zobrist table still covers all 16). */
+ *      is the 16-slot piece-table extent, held OUTSIDE the class (a design choice,
+ *      not a language rule); slots 7, 8 and 15 are in-table but unnamed (the
+ *      Zobrist table still covers all 16). */
 enum class Piece : u8 {
   NO_PIECE = 0,
   W_PAWN = 1, W_KNIGHT = 2, W_BISHOP = 3, W_ROOK = 4, W_QUEEN = 5, W_KING = 6,
@@ -83,8 +85,8 @@ enum class Piece : u8 {
 constexpr int PIECE_NB = 16;   /* piece-table extent (NOT a piece) */
 
 /* ---- Color. One byte (u8). WHITE=0 / BLACK=1 mirror Stockfish and are frozen.
- *      COLOR_NB (2) is the color-table extent, held OUTSIDE the class because it
- *      is not a legal color. */
+ *      COLOR_NB (2) is the color-table extent, held OUTSIDE the class (a design
+ *      choice, not a language rule): a count is not a color. */
 enum class Color : u8 {
   WHITE = 0,
   BLACK = 1,

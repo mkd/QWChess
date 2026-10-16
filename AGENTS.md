@@ -12,20 +12,26 @@ Do **not** reload the whole repo or all upstream NNUE source; read on demand.
 
 ## Build / test (Debian; g++ default, `CXX=clang++` optional; no CMake)
 ```
-make | make debug | make sanitize
-make test | make test-sanitize
-make check-cpp20     # strict -std=c++20 -pedantic-errors gate over all sources
-make net | make test-net        # net fetch/verify (offline build never needs this)
+make [debug|sanitize]                      # engine to build/cpp20/<config>/ (release default)
+make test [CONFIG=release|debug|sanitize]  # build+run tests in that config (release default)
+make test-sanitize                         # alias for the ASan/UBSan-instrumented run
+make check-cpp20                           # strict -std=c++20 -pedantic-errors gate over all sources
+make net | make test-net                   # net fetch/verify (offline build never needs this)
 ```
-Separate `build/cpp20/<config>/` trees — never mix objects across configs.
+`CONFIG` is exactly release/debug/sanitize (an unknown value is a hard error); `test`
+honors `CONFIG` (so `make test CONFIG=debug` runs the debug binaries). Separate
+`build/cpp20/<config>/` trees — never mix objects across configs.
 
 ## Hard rules
-- All shipped logic is **C++20**. The C++ standard library is permitted at the
-  implementation level (fixed-width types, `<bit>`, `<cstring>`, `<chrono>`, …).
-  Prohibited at play time: LLM calls, remote services, and any external evaluator
-  process. Upstream SF19 C++ remains a *test oracle/opponent* only. C++ does **not**
-  relax the determinism, ownership, memory-layout, score, or synchronization
-  contracts. Prohibit exceptions and RTTI (`dynamic_cast`/`typeinfo`).
+- All shipped logic is **C++20** (C++26 is the intended later direction to *evaluate*).
+  The C++ standard library is permitted at the implementation level. Prohibited at
+  play time: LLM calls, remote services, any external evaluator process. Upstream SF19
+  C++ remains a *test oracle/opponent* only. C++ does **not** relax the determinism,
+  ownership, memory-layout, score or synchronization contracts. The earlier *blanket*
+  ban on exceptions/RTTI and the fixed standard-header list are removed: this
+  checkpoint introduces **neither exceptions nor RTTI**, hot paths keep explicit
+  non-throwing failures, and there is no per-node heap allocation. Full policy and
+  conventions: `docs/ARCHITECTURE.md` "Engineering policy".
 - **C++20 source portability ≠ runtime compatibility.** It does not prove the engine
   runs on every CPU/OS; each target still needs its own build + tests (CPP20-3).
 - **One board representation = `Position`** (authoritative chess state). NNUE is a
@@ -51,19 +57,21 @@ Separate `build/cpp20/<config>/` trees — never mix objects across configs.
   *multiple* search workers are deferred.
 - Keep protocol output serialized to stdout; other diagnostics elsewhere.
 
-## C++20 conventions (this codebase)
-- **Standard headers** only (`<cstdint>`,`<cstring>`,`<cstdio>`,`<cstddef>`,`<chrono>`,
-  `<bit>`), not the C headers. **`std::`-qualify** standard-library functions/types.
-  `nullptr` (not `NULL`); `static_assert` (not `_Static_assert`).
-- `using` aliases for fixed-width types; plain `struct` declarations (no
-  `typedef struct … x;`). Header helpers are `inline`; pure geometry/encoding
-  helpers may be `constexpr` without changing the edge-case contract. Bitboard
-  count/scan uses `<bit>`; the forced portable fallback (`QWC_FORCE_PORTABLE_BITS=1`)
-  is retained for tests.
-- C-style casts are allowed **only** at genuine representation boundaries
-  (`u8`→`int`, sentinel→`Square`, …); otherwise `static_cast`. No narrowing.
-  Preserve `NO_SQUARE`/sentinels: zero-init does not make a `Position` valid —
-  `pos_rebuild`/`pos_set_startpos` must run. Test asserts stay active under `NDEBUG`.
+## C++20 conventions (this codebase; full policy in `docs/ARCHITECTURE.md`)
+- **C++ standard headers** (not the C ones); **`std::`-qualify** standard types and
+  functions (incl. `size_t`); include what you use directly. `nullptr` (not `NULL`);
+  `static_assert` (not `_Static_assert`).
+- `using` aliases for fixed-width types; plain `struct` declarations. Header helpers
+  are `inline`; pure geometry/encoding helpers may be `constexpr` without changing the
+  edge-case contract. Bitboard count/scan uses `<bit>`; the forced portable fallback
+  (`QWC_FORCE_PORTABLE_BITS=1`) is retained for tests.
+- C-style casts only at genuine representation boundaries; otherwise `static_cast`.
+  No narrowing. Preserve `NO_SQUARE`/sentinels: zero-init does not make a `Position`
+  valid — `pos_rebuild`/`pos_set_startpos` must run. Test asserts stay active under
+  `NDEBUG`.
+- **Naming:** PascalCase domain types; snake_case functions/variables; UPPER_SNAKE
+  constants/enumerators (frozen spellings). **Approved product requirements** (IDs,
+  milestones, acceptance, status) live in `docs/REQUIREMENTS.md`.
 
 ## Evidence discipline
 - Correctness ≠ speed ≠ strength. Never claim a test passed unless you ran it and it passed.

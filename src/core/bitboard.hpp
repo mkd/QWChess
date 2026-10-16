@@ -1,13 +1,16 @@
 /* QwenChess core: 64-bit bitboard primitives. Header-only.
  *
- * Bit 0 == square a1 (bit index == Square). All operations are total: the
- * zero bitboard and edge conditions are defined, and no call performs an
- * undefined shift (no shift by 64 / negative shift / zero-input bit-scan).
+ * Bit 0 == square a1 (bit index == Square). All operations are total: the zero
+ * bitboard and every edge condition are defined. The shift helpers guard the
+ * shift amount (never a shift by 64 / negative / out-of-range) and the count/
+ * scan helpers return a sentinel on zero, so no call is undefined.
  *
  * The count/scan helpers use the C++20 <bit> standard (std::popcount /
  * std::countr_zero / std::countl_zero) on the normal path, with a
  * straightforward portable fallback. Define QWC_FORCE_PORTABLE_BITS=1 to force
  * the fallback (used by tests to exercise the non-<bit> path on any host).
+ * The <bit> scans are themselves total (they return the bit width on zero);
+ * QWChess maps zero to its own -1 sentinel -- see lsb_index/msb_index.
  */
 #ifndef QWC_CORE_BITBOARD_HPP
 #define QWC_CORE_BITBOARD_HPP
@@ -53,8 +56,10 @@ inline int popcount(u64 x) {
 }
 
 /* Index (0..63) of the least-significant set bit, or -1 if x == 0.
- * The <bit> function is only called on nonzero input (its zero-input behavior
- * is undefined). */
+ * std::countr_zero(0) is well-defined and returns the bit width (64 for a u64);
+ * the explicit zero guard supplies QWChess's own -1 "no set bit" sentinel -- a
+ * different value from the standard's 64 -- and keeps the <bit> call on nonzero
+ * input. (The guard is a domain choice, not a UB workaround.) */
 inline int lsb_index(u64 x) {
   if (x == 0)
     return -1;

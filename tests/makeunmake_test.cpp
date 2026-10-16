@@ -17,6 +17,7 @@
 #include "core/bitboard.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <cstddef>
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -267,7 +268,7 @@ static int t_ep_nonpawn(void) {
     /* a queen capture, black (Qxd5) */
     { "7K/3q4/8/3Q4/8/8/8/k7 b - - 0 1",   3, 6, 3, 4, Piece::B_QUEEN, 0, 2, Color::WHITE, "7K/8/8/3q4/8/8/8/k7 w - - 0 2" },
   };
-  for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+  for (std::size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
     Position pos;
     QWC_TRUE(fen_load(&pos, C[i].fen, &why) == 1, "load a legal fixture");
     Position base = pos;

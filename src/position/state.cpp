@@ -5,7 +5,7 @@
  * single/double pushes, ordinary pawn captures), EN-PASSANT captures (checkpoint
  * 2), orthodox CASTLING (checkpoint 3: the 4-edit application in the apply path
  * below), PROMOTIONS/underpromotions (checkpoint 4: the 2-edit application), and
- * the nullptr move + repetition history (checkpoint 5: the zero-edit application
+ * the null move + repetition history (checkpoint 5: the zero-edit application
  * with the caller-owned history chain + pos_repetition_count).
  *
  * Everything here is chess-level: no NNUE types, feature indices or evaluator

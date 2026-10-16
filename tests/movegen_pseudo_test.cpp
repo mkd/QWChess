@@ -39,7 +39,7 @@ enum { MG_CAP = 256 };
 /* Decode a coordinate string ("a1a2" or "a7a8q") into a Move. A promotion suffix
  * (n/b/r/q) sets MoveFlag::MV_PROMO with the matching payload. Returns 0 if malformed. */
 static int coord_to_move(const char *s, Move *out) {
-  size_t len = std::strlen(s);
+  std::size_t len = std::strlen(s);
   if (len < 4 || len > 5) return 0;
   int ff = s[0] - 'a', fr = s[1] - '1', tf = s[2] - 'a', tr = s[3] - '1';
   if (ff < 0 || ff > 7 || fr < 0 || fr > 7 || tf < 0 || tf > 7 || tr < 0 || tr > 7)
@@ -141,8 +141,8 @@ static int split_spaces(char *s, char **toks, int maxtok) {
 
 /* Copy a NUL-terminated string into `dst`, clamped to `cap` (never reads past
  * the source's terminator and never writes the buffer full without a terminator). */
-static void strcopy(char *dst, size_t cap, const char *src) {
-  size_t n = std::strlen(src);
+static void strcopy(char *dst, std::size_t cap, const char *src) {
+  std::size_t n = std::strlen(src);
   if (n >= cap) n = cap - 1;
   std::memcpy(dst, src, n);
   dst[n] = '\0';
@@ -153,7 +153,7 @@ static void strcopy(char *dst, size_t cap, const char *src) {
 static void reflect_moveset(const char *src, char dst[512]) {
   char buf[512]; strcopy(buf, sizeof buf, src);
   char *toks[128]; int nt = split_spaces(buf, toks, 128);
-  size_t di = 0;
+  std::size_t di = 0;
   for (int i = 0; i < nt; i++) {
     if (i) dst[di++] = ' ';
     for (int k = 0; toks[i][k] != '\0'; k++) {
@@ -166,9 +166,9 @@ static void reflect_moveset(const char *src, char dst[512]) {
 }
 
 /* In-place ascending sort of an array of Moves (the compact encoding is total). */
-static void sort_moves(Move *a, size_t n) {
-  for (size_t i = 1; i < n; i++) {
-    Move key = a[i]; size_t j = i;
+static void sort_moves(Move *a, std::size_t n) {
+  for (std::size_t i = 1; i < n; i++) {
+    Move key = a[i]; std::size_t j = i;
     while (j > 0 && a[j - 1] > key) { a[j] = a[j - 1]; j--; }
     a[j] = key;
   }
@@ -241,8 +241,8 @@ enum { NB_FIXTURES = (int)(sizeof fixtures / sizeof fixtures[0]) };
  * after sorting), no duplicates, and -- separately from the coordinates -- the
  * flag/payload semantics (MoveFlag::MV_EP count, MoveFlag::MV_PROMO count + range, no castling, no
  * mixed flags, no reserved bits, from != to, no null). Returns qwc_end(). */
-static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *ep_list) {
-  Move exp[128]; size_t nexp = 0;
+static int cmp_set(const Move *got, std::size_t ngot, const char *moves, const char *ep_list) {
+  Move exp[128]; std::size_t nexp = 0;
   char mbuf[512]; strcopy(mbuf, sizeof mbuf, moves);
   char *mtoks[128]; int mt = split_spaces(mbuf, mtoks, 128);
   char ebuf[256]; strcopy(ebuf, sizeof ebuf, ep_list);
@@ -262,11 +262,11 @@ static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *
   Move gs[MG_CAP]; std::memcpy(gs, got, ngot * sizeof(Move));
   sort_moves(gs, ngot); sort_moves(exp, nexp);
   int nodup = 1;
-  for (size_t i = 1; i < ngot; i++) if (gs[i] == gs[i - 1]) nodup = 0;
+  for (std::size_t i = 1; i < ngot; i++) if (gs[i] == gs[i - 1]) nodup = 0;
   QWC_TRUE(nodup, "no duplicate moves");
   if (ngot == nexp) {
     int match = 1;
-    for (size_t i = 0; i < ngot; i++) if (gs[i] != exp[i]) { match = 0; break; }
+    for (std::size_t i = 0; i < ngot; i++) if (gs[i] != exp[i]) { match = 0; break; }
     QWC_TRUE(match, "complete encoded Move set matches expected");
   } else {
     QWC_TRUE(0, "set sizes differ (cannot compare)");
@@ -275,7 +275,7 @@ static int cmp_set(const Move *got, size_t ngot, const char *moves, const char *
   /* flag / payload semantics, checked separately from the coordinate strings */
   int nep = 0, npr = 0, npr_exp = 0;
   for (int i = 0; i < mt; i++) if (std::strlen(mtoks[i]) == 5) npr_exp++;
-  for (size_t i = 0; i < ngot; i++) {
+  for (std::size_t i = 0; i < ngot; i++) {
     u32 fl = move_flags(got[i]), pr = move_promo(got[i]);
     QWC_TRUE(move_repr_is_valid(got[i]), "no reserved bits set");
     QWC_TRUE(got[i] != 0u, "no null move");
@@ -303,7 +303,7 @@ static int t_fixtures(void) {
     Position pos; const char *why = nullptr;
     QWC_TRUE(fen_load(&pos, fixtures[i].fen, &why) == 1, "fixture loads");
     QWC_TRUE(pos_validate(&pos, &why), "fixture validates");
-    Move out[MG_CAP]; size_t n = 0;
+    Move out[MG_CAP]; std::size_t n = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "generation succeeds");
     fail |= cmp_set(out, n, fixtures[i].moves, fixtures[i].ep_moves);
 
@@ -316,7 +316,7 @@ static int t_fixtures(void) {
     char mref[512], eref[512];
     reflect_moveset(fixtures[i].moves, mref);
     reflect_moveset(fixtures[i].ep_moves, eref);
-    Move mout[MG_CAP]; size_t mn = 0;
+    Move mout[MG_CAP]; std::size_t mn = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&mp, mout, MG_CAP, &mn) == 1, "mirror generation succeeds");
     fail |= cmp_set(mout, mn, mref, eref);
   }
@@ -327,7 +327,7 @@ static int t_fixtures(void) {
 static int t_startpos(void) {
   qwc_begin("mg.startpos");
   Position pos; pos_set_startpos(&pos);
-  Move out[MG_CAP]; size_t n = 0;
+  Move out[MG_CAP]; std::size_t n = 0;
   QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "generation succeeds");
   static const char *exp =
     "a2a3 b2b3 c2c3 d2d3 e2e3 f2f3 g2g3 h2h3 "
@@ -337,8 +337,8 @@ static int t_startpos(void) {
 }
 
 /* Does `got` contain exactly the move from->to with the given flags/payload? */
-static int has_move(const Move *got, size_t n, Square from, Square to, u32 flags, u32 promo) {
-  for (size_t i = 0; i < n; i++)
+static int has_move(const Move *got, std::size_t n, Square from, Square to, u32 flags, u32 promo) {
+  for (std::size_t i = 0; i < n; i++)
     if (move_from(got[i]) == from && move_to(got[i]) == to &&
         move_flags(got[i]) == flags && move_promo(got[i]) == promo)
       return 1;
@@ -356,7 +356,7 @@ static int t_boundary(void) {
   {
     Position pos; const char *why = nullptr;
     QWC_TRUE(fen_load(&pos, "7k/8/8/8/8/8/4r3/4K3 w - - 0 1", &why) == 1, "load");
-    Move out[MG_CAP]; size_t n = 0;
+    Move out[MG_CAP]; std::size_t n = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "gen");
     Square e1 = square_of(4, 0), d2 = square_of(3, 1), e2 = square_of(4, 1);
     QWC_TRUE(has_move(out, n, e1, d2, 0u, 0u), "e1d2 present (attacked; king may move there)");
@@ -376,7 +376,7 @@ static int t_boundary(void) {
     for (int k = 0; k < 2; k++) {
       Position pos; const char *why = nullptr;
       QWC_TRUE(fen_load(&pos, fens[k], &why) == 1, "load");
-      Move out[MG_CAP]; size_t n = 0;
+      Move out[MG_CAP]; std::size_t n = 0;
       QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "gen");
       QWC_TRUE(has_move(out, n, e5, d6, (u32)MoveFlag::MV_EP, 0u), "e5d6 (EP) present despite pin/king exposure");
     }
@@ -393,7 +393,7 @@ static int t_blocked_first(void) {
   Position pos; const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "7k/8/8/8/8/3n4/3P4/7K w - - 0 1", &why) == 1, "load");
   QWC_TRUE(pos_validate(&pos, &why), "validates");
-  Move out[MG_CAP]; size_t n = 0;
+  Move out[MG_CAP]; std::size_t n = 0;
   QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "gen");
   static const char *exp = "h1g1 h1g2 h1h2";
   return cmp_set(out, n, exp, "");
@@ -424,7 +424,7 @@ static int t_capacity(void) {
 
   qwc_begin("mg.capacity");
   {
-    Move buf[MG_CAP]; size_t n = 99;
+    Move buf[MG_CAP]; std::size_t n = 99;
     QWC_TRUE(movegen_pseudo_noncastling(&pos, buf, 20, &n) == 1, "cap 20 succeeds");
     QWC_EQ_I((int)n, 20, "cap 20 writes exactly 20");
     n = 99;
@@ -445,7 +445,7 @@ static int t_capacity(void) {
     const Move sent = (Move)0xA5A5A5A5u;
     Move cbuf[MG_CAP];
     for (int i = 0; i < MG_CAP; i++) cbuf[i] = sent;
-    size_t n = 99;
+    std::size_t n = 99;
     movegen_pseudo_noncastling(&pos, cbuf, 19, &n);
     int beyond_ok = 1;
     for (int i = 19; i < MG_CAP; i++) if (cbuf[i] != sent) beyond_ok = 0;
@@ -463,12 +463,12 @@ static int t_determinism(void) {
   {
     Position pos; pos_set_startpos(&pos);
     Position before = pos;
-    Move a[MG_CAP], b[MG_CAP]; size_t na = 0, nb = 0;
+    Move a[MG_CAP], b[MG_CAP]; std::size_t na = 0, nb = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&pos, a, MG_CAP, &na) == 1, "gen 1");
     QWC_TRUE(movegen_pseudo_noncastling(&pos, b, MG_CAP, &nb) == 1, "gen 2");
     QWC_EQ_I((int)na, (int)nb, "same count on repeat");
     int same = 1;
-    for (size_t i = 0; i < na; i++) if (a[i] != b[i]) same = 0;
+    for (std::size_t i = 0; i < na; i++) if (a[i] != b[i]) same = 0;
     QWC_TRUE(same, "same sequence on repeat");
     QWC_TRUE(pos_equal(&pos, &before), "generation leaves Position untouched");
     QWC_TRUE(pos.history == before.history, "history link untouched");
@@ -486,16 +486,16 @@ static int t_determinism(void) {
     QWC_TRUE(p2.history == &st[1] && st[1].prev == &st[0] && st[0].prev == nullptr, "live 2-record history chain");
     Position before2 = p2;
     StateInfo head_snap = st[1];
-    Move out[MG_CAP]; size_t n = 0;
+    Move out[MG_CAP]; std::size_t n = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&p2, out, MG_CAP, &n) == 1, "gen");
     QWC_TRUE(pos_equal(&p2, &before2), "Position untouched (live history)");
     QWC_TRUE(p2.history == &st[1], "history head untouched");
     QWC_TRUE(state_equal(&st[1], &head_snap), "head record byte-identical");
-    Move out2[MG_CAP]; size_t n2 = 0;
+    Move out2[MG_CAP]; std::size_t n2 = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&p2, out2, MG_CAP, &n2) == 1, "gen again");
     QWC_EQ_I((int)n, (int)n2, "same count on repeat");
     int same = 1;
-    for (size_t i = 0; i < n; i++) if (out[i] != out2[i]) same = 0;
+    for (std::size_t i = 0; i < n; i++) if (out[i] != out2[i]) same = 0;
     QWC_TRUE(same, "identical on repeat (live history)");
   }
   fail |= qwc_end();
@@ -514,7 +514,7 @@ static int t_counters(void) {
   a.halfmove = 0;     a.fullmove = 1;
   b.halfmove = 65535; b.fullmove = 65535;
   pos_rebuild(&a); pos_rebuild(&b);   /* the key/caches do not depend on counters */
-  Move oa[MG_CAP], ob[MG_CAP]; size_t na = 0, nb = 0;
+  Move oa[MG_CAP], ob[MG_CAP]; std::size_t na = 0, nb = 0;
   QWC_TRUE(movegen_pseudo_noncastling(&a, oa, MG_CAP, &na) == 1, "gen A");
   QWC_TRUE(movegen_pseudo_noncastling(&b, ob, MG_CAP, &nb) == 1, "gen B");
   QWC_EQ_I((int)na, (int)nb, "same count at normal vs max counters");
@@ -522,7 +522,7 @@ static int t_counters(void) {
   std::memcpy(sa, oa, na * sizeof(Move)); std::memcpy(sb, ob, nb * sizeof(Move));
   sort_moves(sa, na); sort_moves(sb, nb);
   int same = 1;
-  for (size_t i = 0; i < na; i++) if (sa[i] != sb[i]) same = 0;
+  for (std::size_t i = 0; i < na; i++) if (sa[i] != sb[i]) same = 0;
   QWC_TRUE(same, "identical candidate set at normal vs max counters");
   return qwc_end();
 }
@@ -547,12 +547,12 @@ static int t_apply_unapply(void) {
     qwc_begin(tag);
     Position pos; const char *why = nullptr; const char *w = nullptr;
     QWC_TRUE(fen_load(&pos, fens[k], &why) == 1, "load");
-    Move out[MG_CAP]; size_t n = 0;
+    Move out[MG_CAP]; std::size_t n = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&pos, out, MG_CAP, &n) == 1, "gen");
     QWC_TRUE(n > 0, "non-empty");
     Position base = pos;
     int nmake = 0;
-    for (size_t i = 0; i < n; i++) {
+    for (std::size_t i = 0; i < n; i++) {
       Position before = pos;
       StateInfo st; std::memset(&st, 0, sizeof st);
       QWC_TRUE(pos_make_move(&pos, &st, out[i]) == 1, "structural make succeeds");

@@ -5,6 +5,7 @@
 #include "test_util.hpp"
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 
 static int logical_equal(const Position *a, const Position *b) {
   return std::memcmp(a->mailbox, b->mailbox, sizeof a->mailbox) == 0 &&
@@ -19,7 +20,7 @@ static int logical_equal(const Position *a, const Position *b) {
 static int t_counters(void) {
   qwc_begin("boundary.counters");
   const int values[] = {0, 99, 100, 101, 149, 150, 255, 256, 65535};
-  for (size_t i = 0; i < sizeof values / sizeof values[0]; i++) {
+  for (std::size_t i = 0; i < sizeof values / sizeof values[0]; i++) {
     char fen[FEN_BUF_SIZE], out[FEN_BUF_SIZE];
     Position p, again;
     const char *why = nullptr;
@@ -45,7 +46,7 @@ static int t_counters(void) {
   };
   Position sentinel;
   pos_set_startpos(&sentinel);
-  for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+  for (std::size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
     Position p = sentinel;
     const char *why = nullptr;
     QWC_TRUE(!fen_load(&p, bad[i], &why), "overflow rejected before narrowing");

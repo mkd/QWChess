@@ -45,7 +45,7 @@
  *    convenience and is NOT a public search-ordering contract.
  */
 int movegen_pseudo_noncastling(const Position *pos,
-                               Move *out, size_t capacity,
-                               size_t *count);
+                               Move *out, std::size_t capacity,
+                               std::size_t *count);
 
 #endif /* QWC_MOVEGEN_MOVEGEN_HPP */

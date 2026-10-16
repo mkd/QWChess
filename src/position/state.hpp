@@ -5,8 +5,8 @@
  * ordinary captures, pawn single/double pushes, ordinary pawn captures),
  * EN-PASSANT captures (checkpoint 2; the 3-edit application), orthodox
  * CASTLING (checkpoint 3; the 4-edit application), PROMOTIONS/underpromotions
- * (checkpoint 4; the 2-edit application), and the nullptr move (checkpoint 5; the
- * zero-edit application) + the repetition history in state.c.
+ * (checkpoint 4; the 2-edit application), and the null move (checkpoint 5; the
+ * zero-edit application) + the repetition history in this file.
  * EP, castling and promotion application is STRUCTURAL, not legal: each
  * requires the correct pieces, geometry (and, for castling, the right) but none
  * rejects own-king safety -- a pinned captor's EP, a check-exposing castle

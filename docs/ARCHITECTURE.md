@@ -22,10 +22,15 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 - **position** — the one authoritative board: `Position`, FEN, legal state,
   make/unmake, repetition history, `StateInfo`/`MoveDelta`. Depends on core.
 - **movegen** — legal/pseudo moves, captures, evasions, SEE, staged ordering,
-  histories. Depends on core + position. **Stateless**: reads `Position`, writes
-  into a caller buffer; it owns no mutable state and is read-only over `Position`.
+  histories. Depends on core + position. The **pseudo-legal** generator (cp1, done)
+  is **stateless and read-only** over `Position` (writes candidates into a caller
+  buffer; no make/unmake). The **legal** generator (cp2, next) tests each candidate's
+  own-king safety by **applying it (`pos_make_move`) and reverting it
+  (`pos_unmake_move`)** — a transient, net-zero use of Position's reversible-move
+  machinery — and emits only the king-safe moves (the blanket ban on per-candidate
+  make/unmake is removed). It owns no mutable state of its own.
   **Current (T005 cp1):** a single allocation-free entry point
-  `movegen_pseudo_noncastling(const Position*, Move*, size_t cap, size_t *count)`
+  `movegen_pseudo_noncastling(const Position*, Move*, std::size_t cap, std::size_t *count)`
   emitting every non-castling pseudo-legal candidate (geometric moves, all four
   promotions, structural en passant) with **no** own-king-safety filter and no
   castling; king safety + castling + SEE + evasions land in cp2/cp3.
@@ -40,7 +45,7 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 Planned-but-not-yet-created modules (documented here; do not scaffold dozens of
 empty files): `position/` internals beyond the scaffold, the `nnue/` sub-files,
 `search/`, and the responsive-UCI pieces of `engine/`. (`movegen/` now exists:
-T005 cp1's `movegen.{h,c}` non-castling pseudo-legal generator.)
+T005 cp1's `movegen.{hpp,cpp}` non-castling pseudo-legal generator.)
 
 ## Ownership & lifetimes (CORRECTED)
 
@@ -71,7 +76,7 @@ network change.
 So a 14-thread run ≈ 14 × ~1.4 MiB + 110 MiB shared ≈ **~130 MiB** — well within
 the host's RAM. (The on-disk net is 94 MiB; weights decompress larger in memory.)
 
-## Foundational types (frozen in `src/core/types.h`)
+## Foundational types (frozen in `src/core/types.hpp`)
 
 - `Square` = 0..63 (`a1=0 … h8=63`, `s = rank*8+file`); `NO_SQUARE = 64` sentinel.
 - `Piece`/`PieceType`/`Color` values mirror Stockfish to ease later NNUE parity.
@@ -196,14 +201,61 @@ struct StateInfo {
   synchronization.** The TT and any later worker sharing use C++ atomics
   (`std::atomic`) with a defined memory order; keep a **deterministic single-worker**
   mode for debugging. The shipped logic is C++20 and may use the standard library at
-  the implementation level, but **no exceptions, no RTTI**, and no reliance on
-  implicit narrowing/UB (see AGENTS.md C++20 conventions).
+  the implementation level; the exceptions/RTTI policy, naming and documentation
+  conventions are set in the **Engineering policy** section below (this checkpoint
+  introduces neither exceptions nor RTTI), and there is no reliance on implicit
+  narrowing/UB.
 - No heap allocation on the search/eval hot path; preallocate per worker. Cold
   protocol/diagnostics code stays off the hot path.
 - NNUE integer pipeline follows SF19 exactly (types/order/clipping). Handle signed
   shifts, overflow, aliasing and narrowing **explicitly** — no reliance on UB.
 - Alignment is chosen from the supported kernels/hardware (not a single hard-coded
   cache-line size everywhere).
+
+## Engineering policy (C++ conventions)
+
+The detailed engineering policy. `AGENTS.md` carries a concise version and points
+here; this is the reference.
+
+- **Language direction.** Clean, readable, **portable** C++ with measured performance
+  and a parallel-search architecture. **C++20 is the current build baseline; C++26 is
+  the intended direction** to evaluate for the final product (REQUIREMENTS.md BUILD-1
+  owns the C++26 readiness review — a flag being accepted is *not* proof the feature
+  works). Use templates, `constexpr` specialization and standard-library facilities
+  **when they improve clarity or performance**; prefer the simpler portable
+  implementation when performance is indistinguishable. Focused C-style code /
+  intrinsics, or an isolated C component, remain allowed when appropriate and
+  justified. **Do not claim a language feature is faster merely because it is newer.**
+- **Exceptions / RTTI.** The earlier *blanket* prohibition on exceptions/RTTI and the
+  *restrictive* standard-header list are **removed.** This checkpoint introduces
+  neither; existing hot-path operations keep **explicit non-throwing** failure
+  behavior (return codes / out-params) and there is **no per-node heap allocation** or
+  speculative disabling flags. Exceptions/RTTI may be introduced later only where
+  justified and measured.
+- **Naming.** PascalCase for domain types (`Position`, `StateInfo`, `Move`);
+  snake_case for functions/methods/variables/namespaces (`pos_make_move`);
+  UPPER_SNAKE_CASE for named constants and enumerators (`NO_SQUARE`, `MV_CASTLE`),
+  retaining frozen spellings during this closeout. Existing representation aliases
+  (`u8`, `u32`, `Value`) remain valid. Broader prefix/member/namespace cleanup is
+  coordinated in later bounded steps (CPP20-2B). Classes, wrappers and templates
+  **must serve a purpose.**
+- **Documentation.** Document every production header, type, function/method (including
+  private/inline helpers) and named constant: purpose, units, ranges/sentinels,
+  invariants and, where relevant, preconditions, errors, mutation, lifetimes,
+  ownership, concurrency and allocation constraints. Short helpers may need one
+  sentence. Keep public contracts **beside declarations** and implementation reasoning
+  **beside definitions.** Explain tricky chess rules and optimization assumptions;
+  avoid boilerplate or unsupported promises. Track remaining coverage by module.
+- **Copying / I/O.** Prefer **typed copying** and clear standard interfaces.
+  `std::memcpy` remains valid for appropriate byte / trivially-copyable operations; do
+  not apply it indiscriminately to future owning types. Review human-facing output
+  coherently in CPP20-3 (`std::cout` is a reasonable default; replacing `std::printf`
+  alone proves no speed gain).
+- **Ownership of types.** Preserve **one authoritative `Position`**, chess-level
+  undo/deltas, and **exclusive worker ownership** of mutable board/search/NNUE caches
+  (see the ownership table above). Shared tables/weights are **immutable after
+  initialization**; shared mutable TT/state needs an explicit, valid C++
+  synchronization + lifetime design.
 
 ## Responsive UCI (required from the first UCI milestone)
 
@@ -226,12 +278,16 @@ deferred until measured need. See PLAN.md for the full CPP20 workstream.
 
 - **C++20 migration — now active.** All *shipped* engine logic is C++20 (see
   AGENTS.md); the C++ standard library is permitted at the implementation level.
-  CPP20-1 (language migration) is done and CPP20-2…7 are queued. Continuing rules:
-  gate on C++20 + the platform standard library, keep the full correctness/NNUE/search
-  regression suite green, record the new build + sanitizer coverage, keep UCI,
-  determinism and the single-worker mode byte-identical, and keep `Position`/
-  `StateInfo`/`MoveDelta` plain aggregates with no NNUE types. Note: C++20 *source*
-  portability does not by itself establish runtime compatibility on every CPU/OS.
+  **CPP20-1** (language/build foundation) and **CPP20-2A** (scoped enums + closeout)
+  are done; **CPP20-2B** (namespace/naming/typed constants/fixed storage), **CPP20-3**
+  (interfaces/ownership + platform services + output + docs) and **CPP20-4** (final
+  audit + build profiles + same-ISA comparison + C++26 readiness + cross-build matrix)
+  remain. Continuing rules: gate on C++20 + the platform standard library, keep the
+  full correctness/NNUE/search regression suite green, record the new build +
+  sanitizer coverage, keep UCI, determinism and the single-worker mode byte-identical,
+  and keep `Position`/`StateInfo`/`MoveDelta` plain aggregates with no NNUE types.
+  Note: C++20 *source* portability does not by itself establish runtime compatibility
+  on every CPU/OS. See PLAN.md for the full workstream and the Engineering policy above.
 - **Targeted platform/performance tuning.** Only after a measured bottleneck on the
   actual execution CPU: hot-path cache alignment/branch layout, vector width and
   instruction-set selection, LTO/PGO, and a benchmark-driven choice between the
