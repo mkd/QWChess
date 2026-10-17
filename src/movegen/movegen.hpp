@@ -22,6 +22,8 @@
 
 #include "position/position.hpp"
 
+namespace qwc {
+
 /* Generate every non-castling pseudo-legal candidate of `pos` into `out`.
  *
  * Contract:
@@ -47,5 +49,7 @@
 int movegen_pseudo_noncastling(const Position *pos,
                                Move *out, std::size_t capacity,
                                std::size_t *count);
+
+}  // namespace qwc
 
 #endif /* QWC_MOVEGEN_MOVEGEN_HPP */

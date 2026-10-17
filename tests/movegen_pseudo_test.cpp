@@ -30,6 +30,10 @@
 #include <cstring>
 #include <cstdio>
 #include <cstddef>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* Test output buffer, larger than any fixture's move count. */
 enum { MG_CAP = 256 };
@@ -76,7 +80,7 @@ static u8 mirror_cr(u8 cr) {
  * reflected, the castling rights' color bits swapped, and the history abandoned
  * (the mirror is a fresh setup for this test). */
 static void pos_mirror(const Position *src, Position *dst) {
-  std::memset(dst->mailbox, 0, SQ_NB);
+  dst->mailbox = {};
   for (int s = 0; s < SQ_NB; s++) {
     int p = to_under(src->mailbox[s]);
     if (!p) continue;
@@ -102,26 +106,26 @@ static int pos_equal(const Position *a, const Position *b) {
   if (a->ep_sq != b->ep_sq) return 0;
   if (a->halfmove != b->halfmove) return 0;
   if (a->fullmove != b->fullmove) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq) return 0;
-  if (a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq) return 0;
+  if (a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
 }
 
 /* Do the derived caches + key match a from-scratch rebuild of the same board?
- * pos_rebuild recomputes byPiece/byColor/occ/kings/key (leaving the recorded ep,
+ * pos_rebuild recomputes by_piece/by_color/occ/kings/key (leaving the recorded ep,
  * side, cr and counters untouched), so this confirms an incremental make produced
  * exactly what a full rebuild would -- including the key. */
 static int derived_match_rebuild(const Position *pos, const char **why) {
   Position copy = *pos;
   pos_rebuild(&copy);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != copy.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int c = 0; c < COLOR_NB; c++) if (pos->byColor[c] != copy.byColor[c]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != copy.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int c = 0; c < COLOR_NB; c++) if (pos->by_color[c] != copy.by_color[c]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != copy.occ) { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != copy.wKingSq || pos->bKingSq != copy.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != copy.white_king_sq || pos->black_king_sq != copy.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != copy.key) { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
@@ -242,7 +246,7 @@ enum { NB_FIXTURES = (int)(sizeof fixtures / sizeof fixtures[0]) };
  * flag/payload semantics (MoveFlag::MV_EP count, MoveFlag::MV_PROMO count + range, no castling, no
  * mixed flags, no reserved bits, from != to, no null). Returns qwc_end(). */
 static int cmp_set(const Move *got, std::size_t ngot, const char *moves, const char *ep_list) {
-  Move exp[128]; std::size_t nexp = 0;
+  std::array<Move, 128> exp; std::size_t nexp = 0;
   char mbuf[512]; strcopy(mbuf, sizeof mbuf, moves);
   char *mtoks[128]; int mt = split_spaces(mbuf, mtoks, 128);
   char ebuf[256]; strcopy(ebuf, sizeof ebuf, ep_list);
@@ -260,7 +264,7 @@ static int cmp_set(const Move *got, std::size_t ngot, const char *moves, const c
   QWC_EQ_I((int)ngot, (int)nexp, "move count == expected");
 
   Move gs[MG_CAP]; std::memcpy(gs, got, ngot * sizeof(Move));
-  sort_moves(gs, ngot); sort_moves(exp, nexp);
+  sort_moves(gs, ngot); sort_moves(exp.data(), nexp);
   int nodup = 1;
   for (std::size_t i = 1; i < ngot; i++) if (gs[i] == gs[i - 1]) nodup = 0;
   QWC_TRUE(nodup, "no duplicate moves");
@@ -292,14 +296,14 @@ static int cmp_set(const Move *got, std::size_t ngot, const char *moves, const c
 }
 
 /* ---- the 14 fixtures, original and mirrored ------------------------------- */
-static int t_fixtures(void) {
+static int t_fixtures() {
   int fail = 0;
   for (int i = 0; i < NB_FIXTURES; i++) {
-    char tag[64];
+    std::array<char, 64> tag{};
 
     /* original position */
-    std::snprintf(tag, sizeof tag, "mg.%s", fixtures[i].name);
-    qwc_begin(tag);
+    std::snprintf(tag.data(), tag.size(), "mg.%s", fixtures[i].name);
+    qwc_begin(tag.data());
     Position pos; const char *why = nullptr;
     QWC_TRUE(fen_load(&pos, fixtures[i].fen, &why) == 1, "fixture loads");
     QWC_TRUE(pos_validate(&pos, &why), "fixture validates");
@@ -308,23 +312,23 @@ static int t_fixtures(void) {
     fail |= cmp_set(out, n, fixtures[i].moves, fixtures[i].ep_moves);
 
     /* rank-reflected, color-swapped counterpart */
-    std::snprintf(tag, sizeof tag, "mg.%s.mirror", fixtures[i].name);
-    qwc_begin(tag);
+    std::snprintf(tag.data(), tag.size(), "mg.%s.mirror", fixtures[i].name);
+    qwc_begin(tag.data());
     Position mp; pos_mirror(&pos, &mp);
     QWC_EQ_I((int)mp.side, (int)(1 - to_under(pos.side)), "mirror flips the side");
     QWC_TRUE(pos_validate(&mp, &why), "mirror validates");
-    char mref[512], eref[512];
-    reflect_moveset(fixtures[i].moves, mref);
-    reflect_moveset(fixtures[i].ep_moves, eref);
+    std::array<char, 512> mref{}, eref{};
+    reflect_moveset(fixtures[i].moves, mref.data());
+    reflect_moveset(fixtures[i].ep_moves, eref.data());
     Move mout[MG_CAP]; std::size_t mn = 0;
     QWC_TRUE(movegen_pseudo_noncastling(&mp, mout, MG_CAP, &mn) == 1, "mirror generation succeeds");
-    fail |= cmp_set(mout, mn, mref, eref);
+    fail |= cmp_set(mout, mn, mref.data(), eref.data());
   }
   return fail;
 }
 
 /* ---- the exact start position -------------------------------------------- */
-static int t_startpos(void) {
+static int t_startpos() {
   qwc_begin("mg.startpos");
   Position pos; pos_set_startpos(&pos);
   Move out[MG_CAP]; std::size_t n = 0;
@@ -348,7 +352,7 @@ static int has_move(const Move *got, std::size_t n, Square from, Square to, u32 
 /* Deliberate tests of this layer's boundary: pseudo-legality is NOT legality.
  * A king may move to an attacked square and a pinned captor's en-passant still
  * stands, because own-king safety is filtered later (cp2), not here. */
-static int t_boundary(void) {
+static int t_boundary() {
   int fail = 0;
   /* king in check: e1d2 (attacked) and e1e2 (captures the checking rook) both
    * remain candidates. */
@@ -388,7 +392,7 @@ static int t_boundary(void) {
 /* A pawn whose FIRST step is blocked: blocking the intermediate square must
  * remove both the single and the double push (the d2 pawn faces a knight on d3).
  * Here only the king's three moves remain. */
-static int t_blocked_first(void) {
+static int t_blocked_first() {
   qwc_begin("mg.blocked_first");
   Position pos; const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "7k/8/8/8/8/3n4/3P4/7K w - - 0 1", &why) == 1, "load");
@@ -418,7 +422,7 @@ static int state_equal(const StateInfo *a, const StateInfo *b) {
 }
 
 /* ---- capacity / overflow -------------------------------------------------- */
-static int t_capacity(void) {
+static int t_capacity() {
   int fail = 0;
   Position pos; pos_set_startpos(&pos);   /* exactly 20 moves */
 
@@ -456,7 +460,7 @@ static int t_capacity(void) {
 }
 
 /* ---- determinism + no mutation + live history prefix ---------------------- */
-static int t_determinism(void) {
+static int t_determinism() {
   int fail = 0;
 
   qwc_begin("mg.determinism.repeat");
@@ -480,7 +484,7 @@ static int t_determinism(void) {
     /* a live caller-owned history prefix (two structural makes) is left untouched
      * and generation does not depend on it */
     Position p2; pos_set_startpos(&p2);
-    StateInfo st[2]; std::memset(st, 0, sizeof st);
+    std::array<StateInfo, 2> st{};
     QWC_TRUE(pos_make_move(&p2, &st[0], make_move(square_of(4, 1), square_of(4, 3), 0u, 0u)) == 1, "make 1.e2e4");
     QWC_TRUE(pos_make_move(&p2, &st[1], make_move(square_of(3, 6), square_of(3, 4), 0u, 0u)) == 1, "make 1...d7d5");
     QWC_TRUE(p2.history == &st[1] && st[1].prev == &st[0] && st[0].prev == nullptr, "live 2-record history chain");
@@ -505,7 +509,7 @@ static int t_determinism(void) {
 /* ---- counter independence ------------------------------------------------- */
 /* The same non-EP board at normal (0/1) and at 65535/65535 counters must yield
  * the identical candidate set: rule-50/fullmove do not affect pseudo-legality. */
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("mg.counters");
   const char *fen = "7k/8/8/8/8/3p4/3R4/K7 w - - 0 1";   /* the rook fixture; no EP */
   Position a, b; const char *why = nullptr;
@@ -533,7 +537,7 @@ static int t_counters(void) {
  * cold rebuild; and the unmake must restore the exact logical/derived state and
  * the history link. An unsafe pseudo-legal child need not pass pos_validate /
  * fen_emit, so those are deliberately NOT asserted (cp2 territory). */
-static int t_apply_unapply(void) {
+static int t_apply_unapply() {
   int fail = 0;
   static const char *fens[] = {
     "7k/8/8/8/8/3p4/3R4/K7 w - - 0 1",     /* rook: quiet + slider capture      */
@@ -554,7 +558,7 @@ static int t_apply_unapply(void) {
     int nmake = 0;
     for (std::size_t i = 0; i < n; i++) {
       Position before = pos;
-      StateInfo st; std::memset(&st, 0, sizeof st);
+      StateInfo st{};
       QWC_TRUE(pos_make_move(&pos, &st, out[i]) == 1, "structural make succeeds");
       QWC_TRUE(derived_match_rebuild(&pos, &w), "child caches/key == cold rebuild");
       pos_unmake_move(&pos, &st);
@@ -569,7 +573,7 @@ static int t_apply_unapply(void) {
   return fail;
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_fixtures();
   fail |= t_startpos();

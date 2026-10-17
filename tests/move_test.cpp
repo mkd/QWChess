@@ -8,9 +8,13 @@
  * decode were mutually wrong, so the fixture section pins exact bit patterns. */
 #include "core/types.hpp"
 #include "test_util.hpp"
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- from/to fields + the null sentinel ---- */
-static int t_move_fields(void) {
+static int t_move_fields() {
   qwc_begin("move.fields");
   /* Every from/to value 0..63 round-trips exactly through the 6-bit fields. */
   for (int f = 0; f < SQ_NB; f++)
@@ -31,7 +35,7 @@ static int t_move_fields(void) {
 }
 
 /* ---- flags + promo field: all 3-bit values round-trip; predicates agree ---- */
-static int t_move_flags_promo(void) {
+static int t_move_flags_promo() {
   qwc_begin("move.flags_promo");
   for (int fl = 0; fl < 8; fl++)
     for (int pr = 0; pr < 8; pr++) {
@@ -47,7 +51,7 @@ static int t_move_flags_promo(void) {
 }
 
 /* ---- special move kinds built via the public API ---- */
-static int t_move_kinds(void) {
+static int t_move_kinds() {
   qwc_begin("move.kinds");
   Move q = make_move(4, 8, 0, 0);
   QWC_TRUE(!is_ep(q) && !is_promotion(q) && !is_castle(q), "quiet: no special flag");
@@ -77,7 +81,7 @@ static int t_move_kinds(void) {
 }
 
 /* ---- hand-derived packed fixtures: encode AND decode must agree on exact bits ---- */
-static int t_move_fixtures(void) {
+static int t_move_fixtures() {
   qwc_begin("move.fixtures");
   /* a1->a2 quiet : 0 | (8<<6) | 0      | 0      = 0x0000200 */
   QWC_EQ_U64((u64)make_move(0, 8, 0, 0), 0x0000200ull, "a1a2 packed");
@@ -98,7 +102,7 @@ static int t_move_fixtures(void) {
 }
 
 /* ---- reserved-bit validity: bits 19..31 must be clear; 0..18 are allowed ---- */
-static int t_move_reserved(void) {
+static int t_move_reserved() {
   qwc_begin("move.reserved");
   /* the maximum make_move output sets bits 0..18 only -> still repr-valid */
   QWC_TRUE(move_repr_is_valid(make_move(63, 63, 7, 7)), "all active bits set -> valid");
@@ -111,7 +115,7 @@ static int t_move_reserved(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_move_fields();
   fail |= t_move_flags_promo();

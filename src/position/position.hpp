@@ -3,7 +3,7 @@
  * Contract (docs/ARCHITECTURE.md): Position is the single board. Fields split
  * into caller-PROVIDED inputs and DERIVED caches:
  *   inputs  : mailbox[64], side, cr, ep_sq, halfmove, fullmove
- *   derived : byPiece[16], byColor[2], occ, wKingSq, bKingSq, key   (rebuild)
+ *   derived : by_piece[16], by_color[2], occ, white_king_sq, black_king_sq, key   (rebuild)
  * Piece codes, square numbering and sentinels are unchanged (see core/types.hpp).
  *
  * Ownership/lifetime: a Position is a plain, stack- or worker-allocated value.
@@ -33,8 +33,11 @@
 #define QWC_POSITION_POSITION_HPP
 
 #include "core/types.hpp"
+#include <array>
 #include <limits>
 #include "core/bitboard.hpp"
+
+namespace qwc {
 
 /* Forward-declare the undo-record tag (defined in position/state.hpp, included at
  * the bottom) so `Position` may hold a NON-OWNING pointer to the latest applied
@@ -45,21 +48,21 @@ struct StateInfo;
 /* Storage bound, independent of draw adjudication. FEN counters are checked
  * before narrowing to u16; T004 must also prevent arithmetic overflow. A draw
  * threshold does not make a position structurally invalid. */
-constexpr u16 POS_HM_MAX = std::numeric_limits<u16>::max();
+inline constexpr u16 POS_HM_MAX = std::numeric_limits<u16>::max();
 
 struct Position {
   /* -- inputs (set by a setup path; T004 make/unmake) -- */
-  Piece         mailbox[SQ_NB];  /* Piece (Piece::NO_PIECE = empty); the authoritative board */
+  std::array<Piece, SQ_NB> mailbox;  /* Piece (Piece::NO_PIECE = empty); the authoritative board */
   Color         side;            /* side to move: Color::WHITE / Color::BLACK */
   u8            cr;              /* castling rights: CR_* (0..15) */
   Square        ep_sq;           /* recorded ep target square, or NO_SQUARE */
   HalfMoveClock halfmove;        /* rule-50 clock (validated [0,POS_HM_MAX]) */
   FullMoveNumber fullmove;       /* FEN fullmove number, 1-based (>= 1) */
   /* -- derived caches (recomputed by pos_rebuild; never trusted as inputs) -- */
-  u64           byPiece[PIECE_NB]; /* one bitboard per piece (1..15) */
-  u64           byColor[COLOR_NB]; /* Color::WHITE / Color::BLACK occupancy */
-  u64           occ;             /* byColor[Color::WHITE] | byColor[Color::BLACK] */
-  Square        wKingSq, bKingSq;  /* king squares, or NO_SQUARE */
+  std::array<u64, PIECE_NB> by_piece; /* one bitboard per piece (1..15) */
+  std::array<u64, COLOR_NB> by_color; /* Color::WHITE / Color::BLACK occupancy */
+  u64           occ;             /* by_color[Color::WHITE] | by_color[Color::BLACK] */
+  Square        white_king_sq, black_king_sq;  /* king squares, or NO_SQUARE */
   u64           key;             /* zobrist position key (canonical ep) */
   /* -- repetition history (T004 cp5). A NON-OWNING pointer to the latest
    * applied undo record (real move or null); nullptr on a fresh setup (FEN /
@@ -136,6 +139,8 @@ int pos_is_in_check(const Position *pos, Color victim);
 /* The undo record (StateInfo/MoveDelta) and the reversible make/unmake API.
  * Included last so the Position struct above is complete when state.hpp sees it;
  * state.hpp forward-declares `struct Position` rather than including this header. */
+}  // namespace qwc
+
 #include "position/state.hpp"
 
 #endif /* QWC_POSITION_POSITION_HPP */

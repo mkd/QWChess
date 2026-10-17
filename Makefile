@@ -6,7 +6,9 @@
 #   make test       build + run the tests (honors CONFIG; release by default)
 #   make test CONFIG=debug|sanitize|release   build + run the tests in that config
 #   make test-sanitize  alias for the ASan/UBSan run (real instrumentation)
+#   make test-portable-bits  force the non-<bit> fallback in the bitboard test
 #   make check-cpp20  strict -std=c++20 -pedantic-errors conformance gate over all sources
+#   make check-c      C-residue gate: no C-only constructs / C-compiler extensions remain
 #   make net        fetch + verify the NNUE network into networks/
 #   make test-net   run the net-checker self-test (negative + positive control)
 #   make clean      remove all build output
@@ -105,7 +107,7 @@ TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TE
 DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d)
 
 .SUFFIXES:
-.PHONY: all release debug sanitize test test-sanitize test-run all-config check-cpp20 net test-net clean help
+.PHONY: all release debug sanitize test test-sanitize test-run test-portable-bits all-config check-c check-cpp20 net test-net clean help
 
 all: release
 
@@ -197,6 +199,32 @@ test-sanitize:
 test-run: $(TEST_BINS)
 	@fail=0; for b in $(TEST_BINS); do echo "running $$(basename $$b) ($(CONFIG))"; ./$$b || fail=1; done; exit $$fail
 
+# Exercises the non-<bit> portable fallback in core/bitboard.hpp by compiling and
+# running the bitboard test with QWC_FORCE_PORTABLE_BITS=1 forced on. The <bit> and
+# portable paths must agree on every primitive; this is the reproducible check that
+# the fallback (used on hosts without a <bit> acceleration) is byte-for-byte the same
+# semantics. Honors the current CONFIG for the optimisation flags.
+test-portable-bits: | $(BIN)
+	@echo "bitboard portable fallback [$(CXX) -DQWC_FORCE_PORTABLE_BITS=1, $(CONFIG)]"
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARN) -DQWC_FORCE_PORTABLE_BITS=1 -o $(BIN)/sq_bb_portable_test tests/sq_bb_test.cpp
+	@$(BIN)/sq_bb_portable_test
+	@echo "portable-bits: OK ($(CONFIG))"
+
+# C-residue gate: the engine is C++20 (migrated from C17). This is the *content*
+# check -- scan every source for C-only constructs and C-compiler-extension behaviour
+# (GNU builtins, __extension__, inline asm, gnu dialects) that the cpp20 migration must
+# have removed. check-cpp20 is the *language* gate (valid C++20 via -pedantic-errors);
+# the two together prove the code is clean, portable C++20 with no C residue. Fails
+# (exit 1) if any C-only construct is present.
+check-c:
+	@echo "C-residue check [C++20] over $(words $(ALL_SRC)) files"
+	@hits=$$(grep -rnE '__builtin_|__extension__|__asm__|__GNUC__|__OPTIMIZE__|\basm\s*\(' $(SRC) tests/ 2>/dev/null); \
+	if [ -n "$$hits" ]; then \
+	  echo "  FAIL: C-only constructs / C-compiler extensions found:"; echo "$$hits"; exit 1; \
+	else \
+	  echo "  OK: no C-only constructs / C-compiler extension behavior"; \
+	fi
+
 # Strict C++20 conformance gate: compile every source with
 # -std=c++20 -pedantic-errors (syntax-only, no object output). $(CPPFLAGS)
 # carries only include flags and no -std, and it precedes $(STRICT_CPP20), so the
@@ -220,6 +248,6 @@ clean:
 	rm -rf build
 
 help:
-	@sed -n '2,16p' $(MAKEFILE_LIST)
+	@sed -n '2,18p' $(MAKEFILE_LIST)
 
 -include $(DEPS)

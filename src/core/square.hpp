@@ -13,6 +13,8 @@
 
 #include "core/types.hpp"
 
+namespace qwc {
+
 inline int file_of(Square s) { return (int)(s & 7); }   /* a=0 .. h=7 */
 inline int rank_of(Square s) { return (int)(s >> 3); }  /* rank1=0 .. rank8=7 */
 
@@ -37,5 +39,7 @@ inline int square_name(Square s, char out[3]) {
   out[2] = '\0';
   return 1;
 }
+
+}  // namespace qwc
 
 #endif /* QWC_CORE_SQUARE_HPP */

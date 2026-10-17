@@ -1,17 +1,20 @@
 #include "core/attacks.hpp"
 #include "core/square.hpp"
+#include <array>
+
+namespace qwc {
 
 /* Eight directions. DIR_UP marks whether the direction's square indices
  * increase (lsb-trim) or decrease (msb-trim) relative to the origin. */
-enum { DIR_N = 0, DIR_S, DIR_E, DIR_W, DIR_NE, DIR_NW, DIR_SE, DIR_SW, DIR_NB = 8 };
-static const int DIR_DF[DIR_NB] = { 0, 0, 1, -1, 1, -1, 1, -1 };
-static const int DIR_DR[DIR_NB] = { 1, -1, 0, 0, 1, 1, -1, -1 };
-static const int DIR_UP[DIR_NB] = { 1, 0, 1, 0, 1, 1, 0, 0 };
+constexpr int DIR_N = 0, DIR_S = 1, DIR_E = 2, DIR_W = 3, DIR_NE = 4, DIR_NW = 5, DIR_SE = 6, DIR_SW = 7, DIR_NB = 8;
+static constexpr std::array<int, DIR_NB> DIR_DF{ 0, 0, 1, -1, 1, -1, 1, -1 };
+static constexpr std::array<int, DIR_NB> DIR_DR{ 1, -1, 0, 0, 1, 1, -1, -1 };
+static constexpr std::array<int, DIR_NB> DIR_UP{ 1, 0, 1, 0, 1, 1, 0, 0 };
 
-static u64 g_rays[SQ_NB][DIR_NB];
-static u64 g_pawn[2][SQ_NB];
-static u64 g_knight[SQ_NB];
-static u64 g_king[SQ_NB];
+static std::array<std::array<u64, DIR_NB>, SQ_NB> g_rays{};
+static std::array<std::array<u64, SQ_NB>, 2> g_pawn{};
+static std::array<u64, SQ_NB> g_knight{};
+static std::array<u64, SQ_NB> g_king{};
 static int g_inited = 0;
 
 static int onb(int f, int r) { return f >= 0 && f < 8 && r >= 0 && r < 8; }
@@ -32,7 +35,7 @@ static u64 trim_ray(u64 ray, u64 occ, int up) {
   return out;
 }
 
-void attacks_init(void) {
+void attacks_init() {
   for (int r = 0; r < 8; r++) {
     for (int f = 0; f < 8; f++) {
       int sq = (r << 3) | f;
@@ -54,8 +57,8 @@ void attacks_init(void) {
         g_pawn[c][sq] = p;
       }
 
-      { static const int kf[8] = { 1, 2, 2, 1, -1, -2, -2, -1 };
-        static const int kr[8] = { 2, 1, -1, -2, -2, -1, 1, 2 };
+      { static constexpr std::array<int, 8> kf{ 1, 2, 2, 1, -1, -2, -2, -1 };
+        static constexpr std::array<int, 8> kr{ 2, 1, -1, -2, -2, -1, 1, 2 };
         u64 k = 0;
         for (int i = 0; i < 8; i++) {
           int nf = f + kf[i], nr = r + kr[i];
@@ -77,7 +80,7 @@ void attacks_init(void) {
   g_inited = 1;
 }
 
-static void ensure(void) { if (!g_inited) attacks_init(); }
+static void ensure() { if (!g_inited) attacks_init(); }
 
 u64 pawn_attacks(Color c, Square sq)   { ensure(); return (sq < SQ_NB && to_under(c) < 2) ? g_pawn[to_under(c)][sq] : 0; }
 u64 knight_attacks(Square sq)          { ensure(); return sq < SQ_NB ? g_knight[sq] : 0; }
@@ -100,3 +103,4 @@ u64 bishop_attacks(Square sq, u64 occ) {
 }
 
 u64 queen_attacks(Square sq, u64 occ) { return rook_attacks(sq, occ) | bishop_attacks(sq, occ); }
+}  // namespace qwc

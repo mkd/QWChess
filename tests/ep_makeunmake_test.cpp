@@ -25,6 +25,10 @@
 #include "core/square.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -39,11 +43,11 @@ static int pos_equal(const Position *a, const Position *b) {
   if (a->ep_sq != b->ep_sq) return 0;
   if (a->halfmove != b->halfmove) return 0;
   if (a->fullmove != b->fullmove) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq) return 0;
-  if (a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq) return 0;
+  if (a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
 }
@@ -66,16 +70,16 @@ static int state_equal(const StateInfo *a, const StateInfo *b) {
   return 1;
 }
 /* Do the derived caches + key match a from-scratch rebuild of the same board?
- * pos_rebuild recomputes byPiece/byColor/occ/kings/key (it leaves the recorded
+ * pos_rebuild recomputes by_piece/by_color/occ/kings/key (it leaves the recorded
  * ep, side, cr and counters untouched), so this confirms the incremental make()
  * produced exactly what a full rebuild would -- including the key. */
 static int derived_match_rebuild(const Position *pos, const char **why) {
   Position copy = *pos;
   pos_rebuild(&copy);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != copy.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int c = 0; c < COLOR_NB; c++) if (pos->byColor[c] != copy.byColor[c]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != copy.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int c = 0; c < COLOR_NB; c++) if (pos->by_color[c] != copy.by_color[c]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != copy.occ) { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != copy.wKingSq || pos->bKingSq != copy.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != copy.white_king_sq || pos->black_king_sq != copy.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != copy.key) { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
@@ -83,7 +87,7 @@ static int derived_match_rebuild(const Position *pos, const char **why) {
 /* Rank-mirror a Position (same reflection as fen_test.c): flip each square's
  * rank, swap colors, reflect the recorded ep square, keep the rest, rebuild. */
 static void pos_mirror(const Position *src, Position *dst) {
-  std::memset(dst->mailbox, 0, SQ_NB);
+  dst->mailbox = {};
   for (int s = 0; s < SQ_NB; s++) {
     int p = to_under(src->mailbox[s]);
     if (!p) continue;
@@ -149,14 +153,14 @@ enum { MK_NB = (int)(sizeof mk / sizeof mk[0]) };
  * restore on undo. A rejected make must leave the Position and StateInfo intact. */
 static int ep_body(Position *pos, int from, int to, int ok, int safe, const char *after) {
   Position before = *pos;
-  StateInfo st; std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   Move mv = make_move((Square)from, (Square)to, MoveFlag::MV_EP, 0u);
   const char *why = nullptr;
   Color mside = (Color)before.side;
 
   if (!ok) {
     QWC_TRUE(pos_make_move(pos, &st, mv) == 0, "make rejected");
-    StateInfo zero; std::memset(&zero, 0, sizeof zero);
+    StateInfo zero{};
     QWC_TRUE(pos_equal(pos, &before), "pos unchanged after reject");
     QWC_TRUE(state_equal(&st, &zero), "state unchanged after reject");
     return qwc_end();
@@ -205,7 +209,7 @@ static int ep_body(Position *pos, int from, int to, int ok, int safe, const char
   return qwc_end();
 }
 /* ---- the two exact before/after-FEN captures ------------------------------ */
-static int t_main(void) {
+static int t_main() {
   int fail = 0;
   qwc_begin("ep_main.white_e5d6");
   Position pos; const char *why = nullptr;
@@ -222,7 +226,7 @@ static int t_main(void) {
 }
 
 /* ---- the eight fixtures, originals (white to move) ------------------------ */
-static int t_fixtures(void) {
+static int t_fixtures() {
   int fail = 0;
   for (int i = 0; i < MK_NB; i++) {
     char tag[64]; std::snprintf(tag, sizeof tag, "ep_fix.%d_%d", mk[i].id, mk[i].from);
@@ -235,7 +239,7 @@ static int t_fixtures(void) {
 }
 
 /* ---- the eight fixtures, rank-mirrored (black to move) -------------------- */
-static int t_mirrors(void) {
+static int t_mirrors() {
   int fail = 0;
   for (int i = 0; i < MK_NB; i++) {
     char tag[64]; std::snprintf(tag, sizeof tag, "ep_mirror.%d_%d", mk[i].id, mk[i].from);
@@ -251,12 +255,12 @@ static int t_mirrors(void) {
   return fail;
 }
 /* ---- a double push creating a legal EP target, then the capture ----------- */
-static int t_sequence(void) {
+static int t_sequence() {
   qwc_begin("ep_seq.push_then_ep");
   Position pos; const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "7k/8/8/8/2p5/8/1P6/7K w - - 0 1", &why) == 1, "load");
   Position before = pos;
-  StateInfo st[2]; std::memset(st, 0, sizeof st);
+  std::array<StateInfo, 2> st{};
 
   /* 1.b2b4 (white double push) records the ep target b3 */
   QWC_TRUE(pos_make_move(&pos, &st[0], make_move(sq_of(1, 1), sq_of(1, 3), 0u, 0u)) == 1, "1.b2b4 accepted");
@@ -295,7 +299,7 @@ static int count_case(const char *tag, const char *fen, int fm, int from, int to
   QWC_TRUE(fen_load(&pos, fen, &why) == 1, "load");
   pos.fullmove = (FullMoveNumber)fm;
   Position before = pos;
-  StateInfo st; std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   Move mv = make_move((Square)from, (Square)to, MoveFlag::MV_EP, 0u);
   if (ok) {
     QWC_TRUE(pos_make_move(&pos, &st, mv) == 1, "ep accepted");
@@ -305,7 +309,7 @@ static int count_case(const char *tag, const char *fen, int fm, int from, int to
     QWC_TRUE(pos_equal(&pos, &before), "undo restores fullmove");
   } else {
     QWC_TRUE(pos_make_move(&pos, &st, mv) == 0, "ep rejected (fullmove overflow)");
-    StateInfo zero; std::memset(&zero, 0, sizeof zero);
+    StateInfo zero{};
     QWC_TRUE(pos_equal(&pos, &before), "pos unchanged");
     QWC_TRUE(state_equal(&st, &zero), "state unchanged");
     QWC_EQ_I((int)pos.fullmove, fm, "fullmove unchanged");
@@ -313,7 +317,7 @@ static int count_case(const char *tag, const char *fen, int fm, int from, int to
   return qwc_end();
 }
 
-static int t_counters(void) {
+static int t_counters() {
   int fail = 0;
   const char *bep = "7k/8/8/8/1Pp5/8/8/7K b - b3 0 1";  /* black c4(26)xb3(17) */
   const char *wep = "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 1";  /* white e5(36)xd6(43) */
@@ -326,7 +330,7 @@ static int t_counters(void) {
  * StateInfo byte-for-byte unchanged (the contract for every rejection). */
 static void assert_reject(Position *pos, int from, int to, u32 flags, u32 promo) {
   Position before = *pos;
-  StateInfo st; std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   StateInfo st0 = st;
   Move mv = make_move((Square)from, (Square)to, flags, promo);
   QWC_TRUE(pos_make_move(pos, &st, mv) == 0, "make rejected");
@@ -358,7 +362,7 @@ static int reject_mkpos_case(const char *tag, Color side, int cr, int hm, int fm
  * checks; the directly-constructed cases exercise the malformed double-push
  * record (pos_ep_is_valid_meta) that fen_load would itself refuse.
  */
-static int t_reject(void) {
+static int t_reject() {
   int fail = 0;
   /* absent recorded target */
   fail |= reject_fen_case("ep_reject.absent_ep",
@@ -405,7 +409,7 @@ static int t_reject(void) {
   return fail;
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_main();
   fail |= t_fixtures();

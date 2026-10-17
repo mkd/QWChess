@@ -233,12 +233,13 @@ here; this is the reference.
   speculative disabling flags. Exceptions/RTTI may be introduced later only where
   justified and measured.
 - **Naming.** PascalCase for domain types (`Position`, `StateInfo`, `Move`);
-  snake_case for functions/methods/variables/namespaces (`pos_make_move`);
-  UPPER_SNAKE_CASE for named constants and enumerators (`NO_SQUARE`, `MV_CASTLE`),
-  retaining frozen spellings during this closeout. Existing representation aliases
-  (`u8`, `u32`, `Value`) remain valid. Broader prefix/member/namespace cleanup is
-  coordinated in later bounded steps (CPP20-2B). Classes, wrappers and templates
-  **must serve a purpose.**
+  snake_case for functions/methods/variables/namespaces (`pos_make_move`, `qwc`);
+  UPPER_SNAKE_CASE for named constants and enumerators (`NO_SQUARE`, `MV_CASTLE`). All
+  domain types and engine structs live in the project **`qwc` namespace** (applied in
+  CPP20-2B); tests opt in with `using namespace qwc` while production code keeps full
+  qualification. Representation aliases (`u8`, `u32`, `Value`) remain. The remaining
+  member-prefix and human-facing output cleanup is coordinated in CPP20-3. Classes,
+  wrappers and templates **must serve a purpose.**
 - **Documentation.** Document every production header, type, function/method (including
   private/inline helpers) and named constant: purpose, units, ranges/sentinels,
   invariants and, where relevant, preconditions, errors, mutation, lifetimes,
@@ -251,6 +252,16 @@ here; this is the reference.
   not apply it indiscriminately to future owning types. Review human-facing output
   coherently in CPP20-3 (`std::cout` is a reasonable default; replacing `std::printf`
   alone proves no speed gain).
+- **Fixed-size storage.** Fixed-size *data* arrays are `std::array` (position
+  pieces/occupancy, delta squares, attack/zobrist/fen tables, per-test structs) — over C
+  arrays for a stable layout, value semantics, `.data()`/`.size()` and sized iteration,
+  with no heap. A C-string / move buffer handed to a `char*`/`Move*` boundary takes
+  `.data()`/`.size()`. Prefer **typed** initialization (`fill`, aggregate value-init) and
+  **typed** equality (`==` / element compare) over `sizeof`-sized `memset`/`memcmp` byte
+  ops; retain a raw `char out[N]`-style *parameter* where a C-string/move buffer is the
+  natural stable interface, and keep intentional byte-handling of trivially-copyable data
+  (e.g. a deliberate object-representation corruption test) byte-based. (Applied in
+  CPP20-2B; `sizeof(T)`/`memcpy` survive only for legitimate byte handling.)
 - **Ownership of types.** Preserve **one authoritative `Position`**, chess-level
   undo/deltas, and **exclusive worker ownership** of mutable board/search/NNUE caches
   (see the ownership table above). Shared tables/weights are **immutable after
@@ -278,11 +289,11 @@ deferred until measured need. See PLAN.md for the full CPP20 workstream.
 
 - **C++20 migration — now active.** All *shipped* engine logic is C++20 (see
   AGENTS.md); the C++ standard library is permitted at the implementation level.
-  **CPP20-1** (language/build foundation) and **CPP20-2A** (scoped enums + closeout)
-  are done; **CPP20-2B** (namespace/naming/typed constants/fixed storage), **CPP20-3**
-  (interfaces/ownership + platform services + output + docs) and **CPP20-4** (final
-  audit + build profiles + same-ISA comparison + C++26 readiness + cross-build matrix)
-  remain. Continuing rules: gate on C++20 + the platform standard library, keep the
+  **CPP20-1** (language/build foundation), **CPP20-2A** (scoped enums + closeout) and
+  **CPP20-2B** (namespace/naming/typed constants/`std::array` storage + bitboards +
+  build matrix) are done; **CPP20-3** (interfaces/ownership + platform services +
+  output + docs) and **CPP20-4** (final audit + build profiles + same-ISA comparison +
+  C++26 readiness + cross-build matrix) remain. Continuing rules: gate on C++20 + the platform standard library, keep the
   full correctness/NNUE/search regression suite green, record the new build +
   sanitizer coverage, keep UCI, determinism and the single-worker mode byte-identical,
   and keep `Position`/`StateInfo`/`MoveDelta` plain aggregates with no NNUE types.

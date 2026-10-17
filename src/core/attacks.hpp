@@ -21,7 +21,9 @@
 #include "core/types.hpp"
 #include "core/bitboard.hpp"
 
-void attacks_init(void);
+namespace qwc {
+
+void attacks_init();
 
 u64 pawn_attacks(Color c, Square sq);   /* capture masks */
 u64 knight_attacks(Square sq);
@@ -29,5 +31,7 @@ u64 king_attacks(Square sq);
 u64 rook_attacks(Square sq, u64 occ);
 u64 bishop_attacks(Square sq, u64 occ);
 u64 queen_attacks(Square sq, u64 occ);
+
+}  // namespace qwc
 
 #endif /* QWC_CORE_ATTACKS_HPP */

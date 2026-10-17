@@ -8,11 +8,15 @@
 
 #include <cstdint>
 
-std::int64_t qwc_clock_now_ns();
+namespace qwc {
 
-inline std::int64_t qwc_clock_now_us() {
-  std::int64_t ns = qwc_clock_now_ns();
+std::int64_t clock_now_ns();
+
+inline std::int64_t clock_now_us() {
+  std::int64_t ns = clock_now_ns();
   return ns < 0 ? -1 : ns / 1000;
 }
+
+}  // namespace qwc
 
 #endif /* QWC_PLATFORM_CLOCK_HPP */

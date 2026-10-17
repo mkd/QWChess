@@ -1,7 +1,9 @@
 #include "platform/clock.hpp"
 #include <chrono>
 
-std::int64_t qwc_clock_now_ns() {
+namespace qwc {
+
+std::int64_t clock_now_ns() {
   /* std::chrono::steady_clock is the standard library's monotonic,
    * wall-clock-independent clock. It is monotonic by definition (a later now()
    * is never earlier) and its epoch is implementation-defined; the standard does
@@ -14,3 +16,4 @@ std::int64_t qwc_clock_now_ns() {
   auto const ns = std::chrono::duration_cast<std::chrono::nanoseconds>(since).count();
   return static_cast<std::int64_t>(ns);
 }
+}  // namespace qwc

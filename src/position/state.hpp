@@ -45,6 +45,9 @@
 #define QWC_POSITION_STATE_HPP
 
 #include "core/types.hpp"
+#include <array>
+
+namespace qwc {
 
 /* `Position` is defined in position/position.hpp, which includes this header (it
  * is the natural home of the make/unmake API). To avoid a hard include cycle we
@@ -73,7 +76,7 @@ struct SquareEdit {
  * 4 covers orthodox castling (checkpoint 3: king origin/dest + rook origin/
  * dest). The apply/unmake paths loop over the populated edits, so 2, 3 and 4
  * edits are handled alike. */
-enum { MAX_EDIT = 4 };
+inline constexpr int MAX_EDIT = 4;
 
 /* The reversible board change of one move: the applied Move plus the populated
  * square edits. The edits are sufficient for a future NNUE consumer to rebuild
@@ -81,7 +84,7 @@ enum { MAX_EDIT = 4 };
 struct MoveDelta {
   Move       move;         /* the applied move (from/to/flags/promo) */
   int        edit_count;   /* number of populated entries in `edits` (<= MAX_EDIT) */
-  SquareEdit edits[MAX_EDIT];
+  std::array<SquareEdit, MAX_EDIT> edits;
 };
 
 /* The undo record for one applied move (or null). `delta` reverses the board
@@ -128,7 +131,7 @@ struct StateInfo {
 int pos_make_move(struct Position *pos, StateInfo *state, Move m);
 
 /* Reverse the move (or null) recorded in *state, restoring *pos's entire
- * logical state (mailbox, byPiece, byColor, occupancy, king squares, side,
+ * logical state (mailbox, by_piece, by_color, occupancy, king squares, side,
  * castling rights, the recorded ep, both counters and the key) exactly to what
  * it was before the matching make. It also restores *pos's history head
  * (Position.history) to *state->prev, so the repetition history unwounds in the
@@ -147,7 +150,7 @@ void pos_unmake_move(struct Position *pos, StateInfo *state);
  * check). Requires an initialized, consistent Position; it does not run the full
  * malformed-board validator (that is a setup concern, not a per-move one).
  *
- * The transition: zero board edits (pieces, byPiece, byColor, occupancy, king
+ * The transition: zero board edits (pieces, by_piece, by_color, occupancy, king
  * squares and castling rights are all untouched); flip the side to move; clear
  * the recorded en-passant target. QwenChess counter policy: a synthetic null
  * preserves BOTH the halfmove and the fullmove counter for either color (it
@@ -177,5 +180,7 @@ int pos_make_null_move(struct Position *pos, StateInfo *state);
  * Position.history. This is an occurrence query only -- it is NOT
  * threefold/fivefold/rule-50 draw adjudication (that is a search policy). */
 int pos_repetition_count(const struct Position *pos);
+
+}  // namespace qwc
 
 #endif /* QWC_POSITION_STATE_HPP */

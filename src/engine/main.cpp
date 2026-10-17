@@ -6,13 +6,13 @@
 #include <cstdio>
 #include "core/types.hpp"
 
-int main(void) {
+int main() {
   std::printf("QwenChess scaffold (not a playable engine)\n");
   std::printf("  host       : %d-bit\n", (int)(8 * sizeof(unsigned long long)));
-  std::printf("  MAX_PLY    : %d  (stack bound %d)\n", MAX_PLY, MAX_PLY_STACK);
+  std::printf("  MAX_PLY    : %d  (stack bound %d)\n", qwc::MAX_PLY, qwc::MAX_PLY_STACK);
   std::printf("  score      : MATE=%d  MATE_IN_MAX=%d  TB_WIN=%d  INF=%d  NONE=%d\n",
-         VALUE_MATE, VALUE_MATE_IN_MAX_PLY, VALUE_TB_WIN_IN_MAX_PLY,
-         VALUE_INFINITE, VALUE_NONE);
-  std::printf("  no-square  : %d\n", NO_SQUARE);
+         qwc::VALUE_MATE, qwc::VALUE_MATE_IN_MAX_PLY, qwc::VALUE_TB_WIN_IN_MAX_PLY,
+         qwc::VALUE_INFINITE, qwc::VALUE_NONE);
+  std::printf("  no-square  : %d\n", qwc::NO_SQUARE);
   return 0;
 }

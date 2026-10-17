@@ -22,6 +22,10 @@
 #include "core/square.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 #define FEN_BEFORE_W "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 20"
 #define FEN_BEFORE_B "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 7 20"
@@ -38,11 +42,11 @@ static int pos_equal(const Position *a, const Position *b) {
   if (a->ep_sq != b->ep_sq) return 0;
   if (a->halfmove != b->halfmove) return 0;
   if (a->fullmove != b->fullmove) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq) return 0;
-  if (a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq) return 0;
+  if (a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
 }
@@ -63,17 +67,17 @@ static int state_equal(const StateInfo *a, const StateInfo *b) {
   return 1;
 }
 /* Do the derived caches + key match a from-scratch rebuild of the same board?
- * pos_rebuild recomputes byPiece/byColor/occ/kings/key (it leaves the recorded
+ * pos_rebuild recomputes by_piece/by_color/occ/kings/key (it leaves the recorded
  * ep, side, cr and counters untouched), so this confirms the incremental make()
  * produced exactly what a full rebuild would -- including the key and the
  * moving king's cached square. */
 static int derived_match_rebuild(const Position *pos, const char **why) {
   Position copy = *pos;
   pos_rebuild(&copy);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != copy.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int c = 0; c < COLOR_NB; c++) if (pos->byColor[c] != copy.byColor[c]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != copy.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int c = 0; c < COLOR_NB; c++) if (pos->by_color[c] != copy.by_color[c]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != copy.occ) { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != copy.wKingSq || pos->bKingSq != copy.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != copy.white_king_sq || pos->black_king_sq != copy.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != copy.key) { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
@@ -112,7 +116,7 @@ static Position castle_board(Color side, int cr, int hm, int fm) {
  * StateInfo byte-for-byte unchanged (the contract for every rejection). */
 static void assert_reject(Position *pos, Move m) {
   Position before = *pos;
-  StateInfo st; std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   StateInfo st0 = st;
   QWC_TRUE(pos_make_move(pos, &st, m) == 0, "make rejected");
   QWC_TRUE(pos_equal(pos, &before), "pos unchanged after reject");
@@ -133,7 +137,7 @@ static int reject_mkpos_case(const char *tag, Color side, int cr, int hm, int fm
   return qwc_end();
 }
 /* ---- structural facts ------------------------------------------------------ */
-static int t_sizes(void) {
+static int t_sizes() {
   qwc_begin("castle.sizes");
   std::printf("      sizeof(Square)=%zu sizeof(Piece)=%zu sizeof(Move)=%zu sizeof(Color)=%zu "
          "sizeof(HalfMoveClock)=%zu sizeof(FullMoveNumber)=%zu\n",
@@ -166,8 +170,8 @@ static int t_exact_one(const char *tag, const char *before, Move m,
   QWC_EQ_I((int)pos.mailbox[kto], (int)king, "king relocated to destination");
   QWC_EQ_I((int)pos.mailbox[rto], (int)rook, "rook relocated to destination");
   QWC_EQ_I(st.delta.edit_count, 4, "four square edits");
-  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.wKingSq : pos.bKingSq), (int)kto, "moving king cache updated");
-  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.bKingSq : pos.wKingSq), other_home, "other king square preserved");
+  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.white_king_sq : pos.black_king_sq), (int)kto, "moving king cache updated");
+  QWC_EQ_I((int)((king == Piece::W_KING) ? pos.black_king_sq : pos.white_king_sq), other_home, "other king square preserved");
   QWC_TRUE(derived_match_rebuild(&pos, &why), "caches/key == rebuild");
   QWC_TRUE(pos_validate(&pos, &why), "result validates (safe)");
   QWC_TRUE(fen_emit(&pos, buf, (int)sizeof buf) == 1, "emit after");
@@ -177,7 +181,7 @@ static int t_exact_one(const char *tag, const char *before, Move m,
   return qwc_end();
 }
 
-static int t_exact(void) {
+static int t_exact() {
   int fail = 0;
   /* White kingside: e1->g1, h1->f1. */
   fail |= t_exact_one("castle.W_kingside", FEN_BEFORE_W,
@@ -204,7 +208,7 @@ static int t_exact(void) {
 
 /* Nested: white castles, then black castles. FENs round-trip; LIFO unmake
  * restores the original board exactly (kings, rooks, rights, ep, counters, key). */
-static int t_seq(void) {
+static int t_seq() {
   qwc_begin("castle.seq_W_then_B");
   Position pos; StateInfo s0, s1; const char *why = nullptr;
   std::memset(&s0, 0, sizeof s0); std::memset(&s1, 0, sizeof s1);
@@ -237,13 +241,13 @@ static int t_seq(void) {
  * full home board a Color::WHITE kingside castle needs CR_WK; only the values that set
  * it are accepted, and on acceptance both white rights clear while the black
  * rights (the opponent's) are preserved. */
-static int t_rights_opponent(void) {
+static int t_rights_opponent() {
   qwc_begin("castle.rights_opponent");
   static const int crs[8] = { CR_ALL, CR_WK, CR_WQ, CR_WK|CR_WQ, CR_BK, CR_BQ, CR_BK|CR_BQ, 0 };
   for (int i = 0; i < 8; i++) {
     int cr = crs[i];
     Position pos = castle_board(Color::WHITE, cr, 7, 20);
-    StateInfo st; std::memset(&st, 0, sizeof st);
+    StateInfo st{};
     Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE));
     const char *why = nullptr;
     if (cr & CR_WK) {
@@ -262,12 +266,12 @@ static int t_rights_opponent(void) {
 /* All 16 rights states: the key (including the castling-rights contribution)
  * must match an independent rebuild after the make, and unmake must restore the
  * Position byte-for-byte (key included). */
-static int t_rights_keys(void) {
+static int t_rights_keys() {
   qwc_begin("castle.rights_16");
   for (int cr = 0; cr < 16; cr++) {
     Position pos = castle_board(Color::WHITE, cr, 7, 20);
     Position base = pos;
-    StateInfo st; std::memset(&st, 0, sizeof st);
+    StateInfo st{};
     Move m = mvf(FILE_E,RANK_1,FILE_H,RANK_1,to_under(MoveFlag::MV_CASTLE),to_under(Piece::NO_PIECE));
     const char *why = nullptr;
     if (cr & CR_WK) {
@@ -285,7 +289,7 @@ static int t_rights_keys(void) {
 /* Each rejected make must leave the Position and an initialized StateInfo
  * byte-for-byte unchanged. The FEN cases use the standard board; the directly
  * built cases fabricate configurations fen_load would itself refuse. */
-static int t_reject(void) {
+static int t_reject() {
   int fail = 0;
   /* Missing the corresponding right (king + home rook are correctly in place). */
   fail |= reject_mkpos_case("castle.rej.no_WK", Color::WHITE, CR_WQ, 7, 20, NO_SQUARE, std6, 6,
@@ -351,7 +355,7 @@ static int t_reject(void) {
 /* Counter boundary fixtures. A quiet castle increments the halfmove clock and,
  * for Black, the fullmove. At the u16 ceiling the increment overflows and the
  * make is refused, leaving the Position unchanged. */
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("castle.counters");
   Position pos; StateInfo st; Position base; const char *why = nullptr;
 
@@ -406,7 +410,7 @@ static int t_counters(void) {
  * with a white king that can castle kingside. After e1h1 the raw EP square must
  * be NO_SQUARE and the halfmove 0 -> 1; unmake restores the raw square and the
  * full board. */
-static int t_epclear(void) {
+static int t_epclear() {
   qwc_begin("castle.epclearing");
   static const char *fens[3] = {
     "4k3/8/8/3pP3/8/8/8/4K2R w K d6 0 20",
@@ -529,7 +533,7 @@ static int t_attacked_one(const char *tag, const char *fen, Move m) {
   return qwc_end();
 }
 
-static int t_attacked(void) {
+static int t_attacked() {
   int fail = 0;
   Move e1h1 = mvf(FILE_E, RANK_1, FILE_H, RANK_1, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE));
   Move e1a1 = mvf(FILE_E, RANK_1, FILE_A, RANK_1, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE));
@@ -544,7 +548,7 @@ static int t_attacked(void) {
 /* A castling encoding that sets bit 15, or any of the high reserved bits
  * 19..31, must be rejected atomically (pos + state byte-for-byte unchanged),
  * before the make path would otherwise apply it. */
-static int t_reserved(void) {
+static int t_reserved() {
   qwc_begin("castle.reserved_bits");
   const char *fen = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 20";
   const char *why = nullptr;
@@ -558,7 +562,7 @@ static int t_reserved(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_sizes();
   fail |= t_exact();

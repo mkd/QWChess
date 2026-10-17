@@ -41,6 +41,8 @@
 #include "core/zobrist.hpp"
 #include <cstddef>
 
+namespace qwc {
+
 /* ---- small piece helpers ------------------------------------------------- */
 /* piece_color / piece_type come from core/types.hpp (the shared Piece API). */
 
@@ -50,7 +52,7 @@ static int   piece_is_pawn(Piece p) { return piece_type(p) == PieceType::PAWN; }
 /* ---- shared incremental derived-cache maintenance ------------------------
  * make() and unmake() both update the derived caches square-by-square through
  * these, so neither ever rebuilds the whole board. A single add/remove leaves a
- * self-consistent Position (mailbox, byPiece, byColor, occupancy, king squares).
+ * self-consistent Position (mailbox, by_piece, by_color, occupancy, king squares).
  */
 
 /* Place piece `p` on `sq` (callers clear the square first when replacing). */
@@ -59,11 +61,11 @@ static void pos_add_piece(Position *pos, Square sq, Piece p) {
     return;
   u64 b = square_bb(sq);
   pos->mailbox[sq] = p;
-  pos->byPiece[to_under(p)] |= b;
-  pos->byColor[p >= Piece::B_PAWN] |= b;
+  pos->by_piece[to_under(p)] |= b;
+  pos->by_color[p >= Piece::B_PAWN] |= b;
   pos->occ |= b;
-  if (p == Piece::W_KING) pos->wKingSq = sq;
-  else if (p == Piece::B_KING) pos->bKingSq = sq;
+  if (p == Piece::W_KING) pos->white_king_sq = sq;
+  else if (p == Piece::B_KING) pos->black_king_sq = sq;
 }
 
 /* Remove whatever piece is on `sq`, if any. */
@@ -75,19 +77,19 @@ static void pos_remove_piece(Position *pos, Square sq) {
     return;
   u64 b = square_bb(sq);
   pos->mailbox[sq] = Piece::NO_PIECE;
-  pos->byPiece[to_under(p)] &= ~b;
-  pos->byColor[p >= Piece::B_PAWN] &= ~b;
+  pos->by_piece[to_under(p)] &= ~b;
+  pos->by_color[p >= Piece::B_PAWN] &= ~b;
   pos->occ &= ~b;
-  if (p == Piece::W_KING && pos->wKingSq == sq) pos->wKingSq = NO_SQUARE;
-  else if (p == Piece::B_KING && pos->bKingSq == sq) pos->bKingSq = NO_SQUARE;
+  if (p == Piece::W_KING && pos->white_king_sq == sq) pos->white_king_sq = NO_SQUARE;
+  else if (p == Piece::B_KING && pos->black_king_sq == sq) pos->black_king_sq = NO_SQUARE;
 }
 
 /* Recompute both king squares from the piece bitboards. Run after every
  * make/unmake so the cached squares are exact no matter the transient edit order
  * (a consistent position always has exactly one king per color). */
 static void pos_update_kings(Position *pos) {
-  pos->wKingSq = pos->byPiece[to_under(Piece::W_KING)] ? (Square)lsb_index(pos->byPiece[to_under(Piece::W_KING)]) : (Square)NO_SQUARE;
-  pos->bKingSq = pos->byPiece[to_under(Piece::B_KING)] ? (Square)lsb_index(pos->byPiece[to_under(Piece::B_KING)]) : (Square)NO_SQUARE;
+  pos->white_king_sq = pos->by_piece[to_under(Piece::W_KING)] ? (Square)lsb_index(pos->by_piece[to_under(Piece::W_KING)]) : (Square)NO_SQUARE;
+  pos->black_king_sq = pos->by_piece[to_under(Piece::B_KING)] ? (Square)lsb_index(pos->by_piece[to_under(Piece::B_KING)]) : (Square)NO_SQUARE;
 }
 
 /* Apply / revert one square edit (before -> after, or after -> before). */
@@ -589,7 +591,7 @@ int pos_make_null_move(Position *pos, StateInfo *state) {
   int old_ep_file = pos_canon_ep_file(pos);
 
   /* Apply the transition: flip the side, clear the recorded EP. Pieces,
-   * byPiece, byColor, occupancy, king squares and castling rights are untouched. */
+   * by_piece, by_color, occupancy, king squares and castling rights are untouched. */
   pos->ep_sq = NO_SQUARE;
   pos->side = other(pos->side);
 
@@ -645,3 +647,4 @@ int pos_repetition_count(const Position *pos) {
   }
   return count;
 }
+}  // namespace qwc

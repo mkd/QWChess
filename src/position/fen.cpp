@@ -16,8 +16,11 @@
 #include "position/position.hpp"
 #include "core/types.hpp"
 #include "core/square.hpp"
-#include <cstring>
+#include <array>
+#include <algorithm>
 #include <cstddef>
+
+namespace qwc {
 
 /* ---- character <-> Piece (cold path; ASCII is the FEN character set) ---- */
 
@@ -44,7 +47,7 @@ static int piece_from_char(char c) {
 
 /* Map a Piece (1..15) to its FEN letter. */
 static char char_from_piece(Piece p) {
-  static const char upper[PIECE_TYPE_NB] = { ' ', 'P', 'N', 'B', 'R', 'Q', 'K' };
+  static constexpr std::array<char, PIECE_TYPE_NB> upper{ ' ', 'P', 'N', 'B', 'R', 'Q', 'K' };
   char c = upper[to_under(p) & 0x7u];
   return (p >= Piece::B_PAWN) ? (char)(c | 0x20) : c;   /* lowercase if black */
 }
@@ -81,7 +84,7 @@ static int split_fields(const char *fen, const char **f, std::size_t *n, const c
  * first; each rank spans exactly 8 squares (digits 1-8 = empty squares, letters
  * = pieces). Returns 1 on success, 0 (and *why) on failure. */
 static int parse_placement(const char *s, std::size_t len, Piece *mailbox, const char **why) {
-  std::memset(mailbox, 0, SQ_NB);
+  std::fill(mailbox, mailbox + SQ_NB, Piece::NO_PIECE);
   int rank = RANK_8;   /* FEN lists the 8th rank first, down to the 1st */
   int col  = 0;        /* squares placed on the current rank (0..8) */
   for (std::size_t i = 0; i < len; i++) {
@@ -179,16 +182,16 @@ int fen_load(Position *pos, const char *fen, const char **why) {
     return 0;
   if (fen == nullptr) { if (why) *why = "nullptr FEN"; return 0; }
 
-  const char *f[6];
-  std::size_t n[6];
+  std::array<const char *, 6> f{};
+  std::array<std::size_t, 6> n{};
   Position tmp;
   int v;
 
   /* Parse every field into a scratch Position; on any failure *pos is left
    * untouched and *why names the offending field. */
-  std::memset(&tmp, 0, sizeof tmp);
-  if (!split_fields(fen, f, n, why)) return 0;
-  if (!parse_placement(f[0], n[0], tmp.mailbox, why)) return 0;
+  tmp = Position{};
+  if (!split_fields(fen, f.data(), n.data(), why)) return 0;
+  if (!parse_placement(f[0], n[0], tmp.mailbox.data(), why)) return 0;
   if (!parse_side(f[1], n[1], &tmp.side, why)) return 0;
   if (!parse_castling(f[2], n[2], &tmp.cr, why)) return 0;
   if (!parse_ep(f[3], n[3], &tmp.ep_sq, why)) return 0;
@@ -246,7 +249,7 @@ static int fen_len(const Position *pos) {
 
 /* Write the decimal digits of a non-negative value into out at *i (advancing it). */
 static void write_num(char *out, int *i, int v) {
-  char buf[8];
+  std::array<char, 8> buf{};
   int n = 0;
   do { buf[n++] = (char)('0' + (v % 10)); v /= 10; } while (v);
   for (int k = n - 1; k >= 0; k--)
@@ -299,3 +302,4 @@ int fen_emit(const Position *pos, char *out, int outsz) {
   out[i] = '\0';
   return 1;
 }
+}  // namespace qwc

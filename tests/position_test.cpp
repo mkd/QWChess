@@ -18,6 +18,10 @@
 #include "core/zobrist.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* Build a minimal kings-only position from an explicit mailbox. */
 static void place(Position *pos, Square sq, Piece p) { pos->mailbox[sq] = p; }
@@ -25,14 +29,14 @@ static void place(Position *pos, Square sq, Piece p) { pos->mailbox[sq] = p; }
 /* Independent expected key: recompute from the raw snapshot via the verified
  * core hasher, never from the position's cached key/derivation. */
 static u64 expected_key(const Position *pos, int ep_file) {
-  return zobrist_compute(pos->mailbox, pos->side, pos->cr, ep_file);
+  return zobrist_compute(pos->mailbox.data(), pos->side, pos->cr, ep_file);
 }
 
 /* Square from 0-indexed file/rank (test convenience). */
 static Square sq_of(int f, int r) { return square_of((Square)f, (Square)r); }
 
 /* ---- the exact orthodox start position ---- */
-static int t_startpos(void) {
+static int t_startpos() {
   qwc_begin("pos.startpos");
   Position p; pos_set_startpos(&p);
   for (int f = 0; f < FILE_NB; f++) {
@@ -53,18 +57,18 @@ static int t_startpos(void) {
     QWC_EQ_I((int)p.mailbox[s], to_under(Piece::NO_PIECE), "middle ranks empty");
 
   QWC_EQ_I((int)popcount(p.occ), 32, "32 pieces");
-  QWC_EQ_I((int)popcount(p.byColor[to_under(Color::WHITE)]), 16, "16 white");
-  QWC_EQ_I((int)popcount(p.byColor[to_under(Color::BLACK)]), 16, "16 black");
-  QWC_EQ_U64(p.occ, p.byColor[to_under(Color::WHITE)] | p.byColor[to_under(Color::BLACK)], "occ = colors");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_PAWN)] | p.byPiece[to_under(Piece::B_PAWN)]), 16, "16 pawns");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_KNIGHT)] | p.byPiece[to_under(Piece::B_KNIGHT)]), 4, "4 knights");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_BISHOP)] | p.byPiece[to_under(Piece::B_BISHOP)]), 4, "4 bishops");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_ROOK)] | p.byPiece[to_under(Piece::B_ROOK)]), 4, "4 rooks");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_QUEEN)] | p.byPiece[to_under(Piece::B_QUEEN)]), 2, "2 queens");
-  QWC_EQ_I((int)popcount(p.byPiece[to_under(Piece::W_KING)] | p.byPiece[to_under(Piece::B_KING)]), 2, "2 kings");
+  QWC_EQ_I((int)popcount(p.by_color[to_under(Color::WHITE)]), 16, "16 white");
+  QWC_EQ_I((int)popcount(p.by_color[to_under(Color::BLACK)]), 16, "16 black");
+  QWC_EQ_U64(p.occ, p.by_color[to_under(Color::WHITE)] | p.by_color[to_under(Color::BLACK)], "occ = colors");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_PAWN)] | p.by_piece[to_under(Piece::B_PAWN)]), 16, "16 pawns");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_KNIGHT)] | p.by_piece[to_under(Piece::B_KNIGHT)]), 4, "4 knights");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_BISHOP)] | p.by_piece[to_under(Piece::B_BISHOP)]), 4, "4 bishops");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_ROOK)] | p.by_piece[to_under(Piece::B_ROOK)]), 4, "4 rooks");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_QUEEN)] | p.by_piece[to_under(Piece::B_QUEEN)]), 2, "2 queens");
+  QWC_EQ_I((int)popcount(p.by_piece[to_under(Piece::W_KING)] | p.by_piece[to_under(Piece::B_KING)]), 2, "2 kings");
 
-  QWC_EQ_I((int)p.wKingSq, 4, "wKing e1");   /* e1 */
-  QWC_EQ_I((int)p.bKingSq, 60, "bKing e8");  /* e8 */
+  QWC_EQ_I((int)p.white_king_sq, 4, "wKing e1");   /* e1 */
+  QWC_EQ_I((int)p.black_king_sq, 60, "bKing e8");  /* e8 */
   QWC_EQ_I((int)p.side, to_under(Color::WHITE), "white to move");
   QWC_EQ_I((int)p.cr, 15, "all castling rights");
   QWC_EQ_I((int)p.ep_sq, NO_SQUARE, "no ep");
@@ -86,12 +90,12 @@ static void build_kings(Position *pos, Square wk, Square bk, Color side) {
   pos_rebuild(pos);
 }
 
-static int t_constructed(void) {
+static int t_constructed() {
   qwc_begin("pos.constructed");
   Position k; build_kings(&k, 4, 60, Color::WHITE);   /* e1/e8 */
   QWC_EQ_I((int)popcount(k.occ), 2, "kings-only: 2 pieces");
-  QWC_EQ_I((int)k.wKingSq, 4, "kings-only wKing");
-  QWC_EQ_I((int)k.bKingSq, 60, "kings-only bKing");
+  QWC_EQ_I((int)k.white_king_sq, 4, "kings-only wKing");
+  QWC_EQ_I((int)k.black_king_sq, 60, "kings-only bKing");
   QWC_EQ_I((int)k.ep_sq, NO_SQUARE, "kings-only no ep");
   QWC_TRUE(pos_validate(&k, nullptr), "kings-only validates");
   QWC_EQ_U64(k.key, expected_key(&k, -1), "kings-only key");
@@ -105,12 +109,12 @@ static int t_constructed(void) {
 }
 
 /* ---- reset is a valid empty intermediate; instances are isolated ---- */
-static int t_reset_isolation(void) {
+static int t_reset_isolation() {
   qwc_begin("pos.reset_isolation");
   Position e; pos_reset(&e);
   QWC_EQ_I((int)popcount(e.occ), 0, "reset: empty");
-  QWC_EQ_I((int)e.wKingSq, NO_SQUARE, "reset: no white king");
-  QWC_EQ_I((int)e.bKingSq, NO_SQUARE, "reset: no black king");
+  QWC_EQ_I((int)e.white_king_sq, NO_SQUARE, "reset: no white king");
+  QWC_EQ_I((int)e.black_king_sq, NO_SQUARE, "reset: no black king");
   QWC_EQ_I((int)e.side, to_under(Color::WHITE), "reset: white");
   QWC_EQ_I((int)e.cr, 0, "reset: no rights");
   QWC_EQ_I((int)e.ep_sq, NO_SQUARE, "reset: no ep");
@@ -149,7 +153,7 @@ static Position ep_cfg(Square wk, Square bk, Color side, int f, int r, int with_
   return p;
 }
 
-static int t_canonical(void) {
+static int t_canonical() {
   qwc_begin("pos.canonical_ep");
   Position w = ep_cfg(4, 60, Color::WHITE, 3, 5, 1);   /* d6 target; black d5, white e5 */
   QWC_EQ_I(pos_canon_ep_file(&w), 3, "white legal ep -> file d");
@@ -176,7 +180,7 @@ static int t_canonical(void) {
 }
 
 /* ---- rule-50 / fullmove counter bounds; key is independent of them ---- */
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("pos.counters");
   Position p; pos_set_startpos(&p);
   u64 base = p.key;
@@ -202,7 +206,7 @@ static int t_counters(void) {
 
 /* A field-at-a-time corruption must be rejected, and the read-only validator
  * must not mutate the input (it never repairs a stale cache). */
-static int t_corruption(void) {
+static int t_corruption() {
   qwc_begin("pos.corruption");
   Position ok; pos_set_startpos(&ok);
   Position c;
@@ -220,20 +224,20 @@ static int t_corruption(void) {
   QWC_TRUE(pos_validate(&c, &why) == 0, "extra white king rejected");
   QWC_TRUE(c.mailbox[16] == Piece::W_KING, "validator did not remove king");
 
-  std::memcpy(&c, &ok, sizeof c); c.byColor[to_under(Color::WHITE)] |= square_bb(16);
+  std::memcpy(&c, &ok, sizeof c); c.by_color[to_under(Color::WHITE)] |= square_bb(16);
   QWC_TRUE(pos_validate(&c, &why) == 0, "occupancy mismatch rejected");
-  QWC_TRUE((c.byColor[to_under(Color::WHITE)] & square_bb(16)) != 0, "validator did not mutate byColor");
+  QWC_TRUE((c.by_color[to_under(Color::WHITE)] & square_bb(16)) != 0, "validator did not mutate by_color");
 
-  std::memcpy(&c, &ok, sizeof c); c.byPiece[to_under(Piece::W_PAWN)] |= square_bb(16);
+  std::memcpy(&c, &ok, sizeof c); c.by_piece[to_under(Piece::W_PAWN)] |= square_bb(16);
   QWC_TRUE(pos_validate(&c, &why) == 0, "piece bitboard mismatch rejected");
-  QWC_TRUE((c.byPiece[to_under(Piece::W_PAWN)] & square_bb(16)) != 0, "validator did not mutate byPiece");
+  QWC_TRUE((c.by_piece[to_under(Piece::W_PAWN)] & square_bb(16)) != 0, "validator did not mutate by_piece");
 
-  std::memcpy(&c, &ok, sizeof c); c.wKingSq = 3;   /* d1, but the king is on e1 */
-  QWC_TRUE(pos_validate(&c, &why) == 0, "stale wKingSq rejected");
-  QWC_TRUE(c.wKingSq == 3, "validator did not mutate wKingSq");
-  std::memcpy(&c, &ok, sizeof c); c.bKingSq = 59;  /* d8, but the king is on e8 */
-  QWC_TRUE(pos_validate(&c, &why) == 0, "stale bKingSq rejected");
-  QWC_TRUE(c.bKingSq == 59, "validator did not mutate bKingSq");
+  std::memcpy(&c, &ok, sizeof c); c.white_king_sq = 3;   /* d1, but the king is on e1 */
+  QWC_TRUE(pos_validate(&c, &why) == 0, "stale white_king_sq rejected");
+  QWC_TRUE(c.white_king_sq == 3, "validator did not mutate white_king_sq");
+  std::memcpy(&c, &ok, sizeof c); c.black_king_sq = 59;  /* d8, but the king is on e8 */
+  QWC_TRUE(pos_validate(&c, &why) == 0, "stale black_king_sq rejected");
+  QWC_TRUE(c.black_king_sq == 59, "validator did not mutate black_king_sq");
 
   std::memcpy(&c, &ok, sizeof c); c.cr = (u8)16;
   QWC_TRUE(pos_validate(&c, &why) == 0, "invalid rights rejected");
@@ -253,7 +257,7 @@ static int t_corruption(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_startpos();
   fail |= t_constructed();

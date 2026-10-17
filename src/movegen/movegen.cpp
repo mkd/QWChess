@@ -6,7 +6,7 @@
  * en-passant captures. Own-king safety and castling are out of scope here.
  *
  * Uses the existing attack tables (knight/king static masks; sliders over the
- * combined occupancy) and the Position's byPiece/byColor/occ caches. No heap,
+ * combined occupancy) and the Position's by_piece/by_color/occ caches. No heap,
  * no Position copy, no make/unmake, no rebuild, no king-safety query.
  */
 #include "movegen/movegen.hpp"
@@ -17,6 +17,8 @@
 #include "core/square.hpp"
 #include "core/bitboard.hpp"
 #include "core/attacks.hpp"
+
+namespace qwc {
 
 /* Append one move to `out` if there is room. Returns 0 on overflow (the caller
  * treats that as a hard stop) and never writes outside `capacity`. */
@@ -115,14 +117,14 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
 
   std::size_t n = 0;
   const Color   side    = pos->side;
-  const u64     friendly = pos->byColor[to_under(side)];
-  const u64     enemy    = pos->byColor[1 - to_under(side)];
+  const u64     friendly = pos->by_color[to_under(side)];
+  const u64     enemy    = pos->by_color[1 - to_under(side)];
   const u64     enemy_king_bb =
-      square_bb((side == Color::WHITE) ? pos->bKingSq : pos->wKingSq);
+      square_bb((side == Color::WHITE) ? pos->black_king_sq : pos->white_king_sq);
   const int  dir     = (side == Color::WHITE) ? 8  : -8;
   const int  start_r = (side == Color::WHITE) ? 1  : 6;   /* 2nd / 7th rank */
   const int  promo_r = (side == Color::WHITE) ? 7  : 0;   /* 8th / 1st rank */
-  const u64  side_pawns = pos->byPiece[(side == Color::WHITE) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN)];
+  const u64  side_pawns = pos->by_piece[(side == Color::WHITE) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN)];
 
   /* Ordinary pieces (knight/bishop/rook/queen/king) + pawns, in a fixed,
    * deterministic square order. */
@@ -160,7 +162,7 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
       const u64  cap_bb   = square_bb(square_of(ef, captor_r));  /* the taken pawn */
       const u64  landing  = square_bb(pos->ep_sq);
       const int  enemy_pawn = (side == Color::WHITE) ? to_under(Piece::B_PAWN) : to_under(Piece::W_PAWN);
-      const int  enemy_present = (pos->byPiece[enemy_pawn] & cap_bb) != 0;
+      const int  enemy_present = (pos->by_piece[enemy_pawn] & cap_bb) != 0;
       const int  landing_empty = (pos->occ & landing) == 0;
       if (enemy_present && landing_empty) {
         for (int sfx = -1; sfx <= 1; sfx += 2) {
@@ -183,3 +185,4 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
     *count = n;
   return 1;
 }
+}  // namespace qwc

@@ -24,6 +24,8 @@
 
 #include "position/position.hpp"
 
+namespace qwc {
+
 /* A complete standard FEN is well under this; it bounds the emit buffer. */
 constexpr int FEN_BUF_SIZE = 256;
 
@@ -39,5 +41,7 @@ int fen_load(Position *pos, const char *fen, const char **why);
  * its terminator (and leaves *out
  * unchanged in that case). A complete standard FEN is far below FEN_BUF_SIZE. */
 int fen_emit(const Position *pos, char *out, int outsz);
+
+}  // namespace qwc
 
 #endif /* QWC_POSITION_FEN_HPP */

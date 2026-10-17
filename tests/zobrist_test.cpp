@@ -20,11 +20,13 @@
  * Rule-50 and the repetition history are deliberately NOT part of the key.
  * Castling-rights bit convention used by the fixtures: WK=1 WQ=2 BK=4 BQ=8.
  */
-#include <cstring>
 #include <ctime>
+#include <array>
 #include "core/types.hpp"
 #include "core/zobrist.hpp"
 #include "test_util.hpp"
+
+using namespace qwc;
 
 /* Independent expected key values (see tools/zobrist_gen.py).
  * Piece rows 0,7,8,15 are Piece::NO_PIECE/unused slots: drawn to keep the PRNG stream
@@ -37,7 +39,7 @@ static const u64 CASTLE[16] = { 0x9ACB73C63488B544ull, 0xEDE8F6A37FCC2CB7ull, 0x
 static const u64 EPFILE[8]  = { 0xCA07D06BEE139491ull, 0x6393C105DDE1C64Eull, 0xD5255D8C378B98E2ull, 0xD4552612C1F1D4F9ull, 0x30690C25ED4F7CEFull, 0xDC34E363ACA033E7ull, 0xFA7A7E12A7B013CFull, 0xFAF3411EC4419276ull };
 
 /* ---- Part A: deterministic key generation ---- */
-static int t_keys(void) {
+static int t_keys() {
   qwc_begin("zobrist.keys");
   for (int p = 0; p < 16; p++) {
     QWC_EQ_U64(zobrist_piece((Piece)p, 0),  P_A1[p], "piece[a1]");
@@ -58,7 +60,7 @@ static int t_keys(void) {
 
 /* Idempotent + deterministic reinitialization: redrawing from the fixed seed
  * must reproduce every value (no public-contract change). */
-static int t_reinit(void) {
+static int t_reinit() {
   qwc_begin("zobrist.reinit");
   u64 a1 = zobrist_piece(Piece::W_PAWN, 0), h8 = zobrist_piece(Piece::B_KING, 63);
   u64 bl = zobrist_side(Color::BLACK), c3 = zobrist_castling(3), e5 = zobrist_ep_file(5);
@@ -80,7 +82,7 @@ static int t_reinit(void) {
  * "incremental" path under test. check_move() cross-checks the two and also
  * verifies state restoration (apply/unapply) and grounds the reference against
  * the production full compute. */
-typedef struct { Piece mailbox[64]; Color side; u8 cr; int ep_file; } TState;
+typedef struct { std::array<Piece, SQ_NB> mailbox; Color side; u8 cr; int ep_file; } TState;
 
 /* A reversible board change. `pre`/`post` differ only on a promotion; `cap` is
  * the captured piece (Piece::NO_PIECE if none) at `cap_sq` (== to, except en-passant
@@ -122,7 +124,7 @@ static void unapply_move(TState *s, const TMove *m) {
 }
 static int states_equal(const TState *a, const TState *b) {
   return a->side == b->side && a->cr == b->cr && a->ep_file == b->ep_file &&
-         std::memcmp(a->mailbox, b->mailbox, 64) == 0;
+         a->mailbox == b->mailbox;
 }
 /* The XOR-delta under test: exactly the keys that change, per the documented
  * convention (piece in/out, captured piece at its actual square, side, rights,
@@ -141,8 +143,8 @@ static void check_move(const char *name, const TState *b, const TState *a, const
   u64 d = move_delta(m), kb = key_full(b), ka = key_full(a);
   QWC_EQ_U64(kb ^ d, ka, name);                       /* incremental == full recompute */
   QWC_EQ_U64(ka ^ d, kb, name);                       /* XOR is its own inverse (reverse) */
-  QWC_EQ_U64(ka, zobrist_compute(a->mailbox, a->side, a->cr, a->ep_file), name);  /* ground */
-  QWC_EQ_U64(kb, zobrist_compute(b->mailbox, b->side, b->cr, b->ep_file), name);
+  QWC_EQ_U64(ka, zobrist_compute(a->mailbox.data(), a->side, a->cr, a->ep_file), name);  /* ground */
+  QWC_EQ_U64(kb, zobrist_compute(b->mailbox.data(), b->side, b->cr, b->ep_file), name);
   TState fwd = *b; apply_move(&fwd, m);
   QWC_TRUE(states_equal(&fwd, a), name);             /* applying reproduces the after-state */
   TState rst = *a;  unapply_move(&rst, m);
@@ -151,10 +153,10 @@ static void check_move(const char *name, const TState *b, const TState *a, const
 }
 
 /* Standard initial position (16 pieces, both colors, all four rights). */
-static TState base(void) {
-  TState s; std::memset(&s, 0, sizeof s);
-  const Piece wr[] = { Piece::W_ROOK, Piece::W_KNIGHT, Piece::W_BISHOP, Piece::W_QUEEN, Piece::W_KING, Piece::W_BISHOP, Piece::W_KNIGHT, Piece::W_ROOK };
-  const Piece br[] = { Piece::B_ROOK, Piece::B_KNIGHT, Piece::B_BISHOP, Piece::B_QUEEN, Piece::B_KING, Piece::B_BISHOP, Piece::B_KNIGHT, Piece::B_ROOK };
+static TState base() {
+  TState s{};
+  constexpr std::array<Piece, 8> wr{ Piece::W_ROOK, Piece::W_KNIGHT, Piece::W_BISHOP, Piece::W_QUEEN, Piece::W_KING, Piece::W_BISHOP, Piece::W_KNIGHT, Piece::W_ROOK };
+  constexpr std::array<Piece, 8> br{ Piece::B_ROOK, Piece::B_KNIGHT, Piece::B_BISHOP, Piece::B_QUEEN, Piece::B_KING, Piece::B_BISHOP, Piece::B_KNIGHT, Piece::B_ROOK };
   for (int f = 0; f < 8; f++) {
     s.mailbox[SQ(f, 0)] = wr[f];
     s.mailbox[SQ(f, 1)] = Piece::W_PAWN;
@@ -177,15 +179,15 @@ static TMove mv2(TMove m, Piece pre2, Piece post2, Square from2, Square to2) {
   return m;
 }
 /* Bare kings-only board (7th/8th ranks empty) so promotion fixtures are legal. */
-static TState kings(void) {
-  TState s; std::memset(&s, 0, sizeof s);
+static TState kings() {
+  TState s{};
   s.mailbox[SQ(4,0)] = Piece::W_KING;  /* e1 */
   s.mailbox[SQ(4,7)] = Piece::B_KING;  /* e8 */
   s.side = Color::WHITE; s.cr = 0; s.ep_file = -1;
   return s;
 }
 
-static int t_moves(void) {
+static int t_moves() {
   qwc_begin("zobrist.moves");
   {   /* F1: quiet knight (white) Ng1-f3 */
     TState b = base();
@@ -306,7 +308,7 @@ static int t_moves(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   zobrist_init();
   clock_t t0 = clock();
   int fail = 0;

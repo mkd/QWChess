@@ -11,13 +11,32 @@
  * the fallback (used by tests to exercise the non-<bit> path on any host).
  * The <bit> scans are themselves total (they return the bit width on zero);
  * QWChess maps zero to its own -1 sentinel -- see lsb_index/msb_index.
+ *
+ * Endianness: the bitboard is byte-order AGNOSTIC. "bit 0 == a1" is a logical
+ * bit *index*, not a byte address or in-byte bit order, and every operation
+ * (square/file/rank masks, shifts, popcount, lsb/msb) is defined on that index.
+ * The file/rank masks are integer constants whose set-bit *pattern* is
+ * identical on little- and big-endian hosts. So no call here depends on host
+ * endianness. (A future NNUE feature-index serialisation that re-encodes a word
+ * as bytes WOULD be endianness-sensitive and must state its own convention;
+ * that is outside these primitives.)
  */
 #ifndef QWC_CORE_BITBOARD_HPP
 #define QWC_CORE_BITBOARD_HPP
 
 #include <bit>
+#include <climits>
 #include <cstdint>
 #include "core/types.hpp"
+
+namespace qwc {
+
+/* Compile-time trap for an ambiguous word width: the board convention (64
+ * squares, bit 0 == a1) and the <bit> calls are defined for a 64-bit u64. If a
+ * host's uint64_t were not exactly 64 bits the semantics would silently break,
+ * so fail the build rather than mis-index. (types.hpp also asserts sizeof(u64).) */
+static_assert(sizeof(u64) * CHAR_BIT == 64,
+              "bitboard requires a 64-bit u64 word (64 squares, bit 0 == a1)");
 
 #ifndef QWC_FORCE_PORTABLE_BITS
 #define QWC_FORCE_PORTABLE_BITS 0
@@ -84,5 +103,7 @@ inline int msb_index(u64 x) {
   return 63 - std::countl_zero(x);
 #endif
 }
+
+}  // namespace qwc
 
 #endif /* QWC_CORE_BITBOARD_HPP */

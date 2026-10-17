@@ -12,11 +12,15 @@
 #include "core/square.hpp"
 #include "core/bitboard.hpp"
 #include "test_util.hpp"
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- square / file / rank ---- */
-static int t_square(void) {
+static int t_square() {
   qwc_begin("square");
-  char buf[3];
+  std::array<char, 3> buf{};
 
   /* Every board square round-trips exactly through file_of/rank_of/square_of. */
   for (int s = 0; s < SQ_NB; s++) {
@@ -34,18 +38,18 @@ static int t_square(void) {
   QWC_EQ_I(is_valid_square(63), 1, "h8 valid");
 
   /* square_name: the four corners, a mid square, and the sentinel. */
-  QWC_TRUE(square_name(0, buf) && buf[0] == 'a' && buf[1] == '1' && buf[2] == 0, "a1 name");
-  QWC_TRUE(square_name(63, buf) && buf[0] == 'h' && buf[1] == '8', "h8 name");
-  QWC_TRUE(square_name(56, buf) && buf[0] == 'a' && buf[1] == '8', "a8 name");
-  QWC_TRUE(square_name(7, buf) && buf[0] == 'h' && buf[1] == '1', "h1 name");
-  QWC_TRUE(square_name(36, buf) && buf[0] == 'e' && buf[1] == '5', "e5 name");
-  QWC_TRUE(!square_name(NO_SQUARE, buf), "sentinel name -> 0");
+  QWC_TRUE(square_name(0, buf.data()) && buf[0] == 'a' && buf[1] == '1' && buf[2] == 0, "a1 name");
+  QWC_TRUE(square_name(63, buf.data()) && buf[0] == 'h' && buf[1] == '8', "h8 name");
+  QWC_TRUE(square_name(56, buf.data()) && buf[0] == 'a' && buf[1] == '8', "a8 name");
+  QWC_TRUE(square_name(7, buf.data()) && buf[0] == 'h' && buf[1] == '1', "h1 name");
+  QWC_TRUE(square_name(36, buf.data()) && buf[0] == 'e' && buf[1] == '5', "e5 name");
+  QWC_TRUE(!square_name(NO_SQUARE, buf.data()), "sentinel name -> 0");
 
   return qwc_end();
 }
 
 /* ---- bitboard primitives ---- */
-static int t_bitboard(void) {
+static int t_bitboard() {
   qwc_begin("bitboard");
 
   /* Single-bit masks: corners + sentinel / out-of-range. */
@@ -104,7 +108,7 @@ static int t_bitboard(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_square();
   fail |= t_bitboard();

@@ -24,16 +24,20 @@
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* Field-for-field equality of two Positions (inputs + derived caches). */
 static int pos_equal(const Position *a, const Position *b) {
-  if (std::memcmp(a->mailbox, b->mailbox, SQ_NB) != 0) return 0;
+  if (a->mailbox != b->mailbox) return 0;
   if (a->side != b->side || a->cr != b->cr || a->ep_sq != b->ep_sq) return 0;
   if (a->halfmove != b->halfmove || a->fullmove != b->fullmove) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq || a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq || a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
 }
@@ -46,7 +50,7 @@ static int pos_equal(const Position *a, const Position *b) {
  * geometry-symmetric property that a rank-reflect/color-swap ep keeps the same
  * canonical file and the same legality. */
 static void pos_mirror(const Position *src, Position *dst) {
-  std::memset(dst->mailbox, 0, SQ_NB);
+  dst->mailbox = {};
   for (int s = 0; s < SQ_NB; s++) {
     int p = to_under(src->mailbox[s]);
     if (!p) continue;
@@ -89,7 +93,7 @@ static int ep_field_is(const char *fen, int sq) {
 }
 
 /* ---- round-trip: start, a castling mid-game, a full-type board ---- */
-static int t_roundtrip(void) {
+static int t_roundtrip() {
   qwc_begin("fen.roundtrip");
   static const char *boards[] = {
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -113,7 +117,7 @@ static int t_roundtrip(void) {
 }
 
 /* ---- fielded rejection: the caller's Position must survive untouched ---- */
-static int t_reject(void) {
+static int t_reject() {
   qwc_begin("fen.reject");
   const char *why = nullptr;
   Position sentinel;
@@ -186,7 +190,7 @@ typedef struct {
   int         legal;      /* pos_ep_is_legal */
   Captor      caps[2]; int ncap;
 } EpCase;
-static int t_ep(void) {
+static int t_ep() {
   /* The eight task fixtures, verbatim. All are valid and must load. The
    * expectations (placement lists, recorded ep, canonical file, legality,
    * specific captors) are fixed by the chess position -- see the struct
@@ -225,19 +229,19 @@ static int t_ep(void) {
     const EpCase *c = &cases[i];
     Position p; const char *why = nullptr;
     QWC_TRUE(fen_load(&p, c->fen, &why), "load (all eight must load)");
-    u8 exp[SQ_NB] = { 0 };
+    std::array<Piece, SQ_NB> exp{};
     for (int k = 0; k < c->wn; k++)
-      exp[square_of(c->white[k].file, c->white[k].rank)] = (u8)c->white[k].piece;
+      exp[square_of(c->white[k].file, c->white[k].rank)] = c->white[k].piece;
     for (int k = 0; k < c->bn; k++)
-      exp[square_of(c->black[k].file, c->black[k].rank)] = (u8)c->black[k].piece;
-    QWC_TRUE(std::memcmp(p.mailbox, exp, SQ_NB) == 0, "placement == listed pieces (rest empty)");
+      exp[square_of(c->black[k].file, c->black[k].rank)] = c->black[k].piece;
+    QWC_TRUE(p.mailbox == exp, "placement == listed pieces (rest empty)");
     QWC_TRUE((int)p.ep_sq == c->recorded, "recorded ep target retained");
     QWC_EQ_I(pos_ep_is_legal(&p), c->legal, "legality");
     QWC_EQ_I(pos_canon_ep_file(&p), c->canon, "canonical file");
     for (int k = 0; k < c->ncap; k++)
       QWC_EQ_I(pos_ep_capture_is_safe(&p, (Square)c->caps[k].captor), c->caps[k].safe,
                "captor king-safe");
-    QWC_EQ_U64(pos_key(&p), zobrist_compute(p.mailbox, p.side, p.cr, c->canon),
+    QWC_EQ_U64(pos_key(&p), zobrist_compute(p.mailbox.data(), p.side, p.cr, c->canon),
                "key == zobrist contract (canonical ep file)");
   }
   /* A *legal* ep changes the key by exactly the target-file key; an absent
@@ -289,7 +293,7 @@ static int t_ep(void) {
 }
 
 /* ---- emission buffer boundaries ---- */
-static int t_emit_bounds(void) {
+static int t_emit_bounds() {
   qwc_begin("fen.emit.bounds");
   Position p;
   const char *why = nullptr;
@@ -298,9 +302,9 @@ static int t_emit_bounds(void) {
   char big[FEN_BUF_SIZE];
   QWC_TRUE(fen_emit(&p, big, FEN_BUF_SIZE), "emit.bounds: fits FEN_BUF_SIZE");
   QWC_TRUE(std::strcmp(big, start) == 0, "emit.bounds: correct text");
-  char small[16];
+  std::array<char, 16> small{};
   for (int i = 0; i < 16; i++) small[i] = (char)0x5A;   /* poison */
-  QWC_EQ_I(fen_emit(&p, small, (int)sizeof small), 0, "emit.bounds: too small -> 0");
+  QWC_EQ_I(fen_emit(&p, small.data(), (int)small.size()), 0, "emit.bounds: too small -> 0");
   int untouched = 1;
   for (int i = 0; i < 16; i++) if (small[i] != (char)0x5A) untouched = 0;
   QWC_TRUE(untouched, "emit.bounds: buffer unchanged when too small");
@@ -309,7 +313,7 @@ static int t_emit_bounds(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_roundtrip();
   fail |= t_reject();

@@ -15,10 +15,14 @@
  *   queen            : 128 seeded full-board occupancies per square
  */
 #include <ctime>
+#include <array>
+#include <algorithm>
 #include "core/types.hpp"
 #include "core/bitboard.hpp"
 #include "core/attacks.hpp"
 #include "test_util.hpp"
+
+using namespace qwc;
 
 /* ---------- independent reference (own coordinate stepping, no production) --- */
 static int  ref_onb(int f, int r) { return f >= 0 && f < 8 && r >= 0 && r < 8; }
@@ -107,7 +111,7 @@ static void cmp_bb(const char *what, Color c, int sq, u64 occ, u64 got, u64 exp)
 }
 
 /* ---------- Phase 1: pawn / knight / king ---------- */
-static int t_pawn(void) {
+static int t_pawn() {
   qwc_begin("attacks.pawn");
   /* reference must reproduce known-correct capture sets (independent of prod) */
   cmp_bb("pawn.ref", Color::WHITE, 0,  0, ref_pawn(Color::WHITE, 0),  ref_bit(1, 1));  /* a1 -> b2 */
@@ -121,7 +125,7 @@ static int t_pawn(void) {
   return qwc_end();
 }
 
-static int t_knight(void) {
+static int t_knight() {
   qwc_begin("attacks.knight");
   /* a1 corner = 2 moves (b3,c2); e4 center = 8 moves */
   cmp_bb("knight.ref", Color::WHITE, 0, 0, ref_knight(0),
@@ -134,7 +138,7 @@ static int t_knight(void) {
   return qwc_end();
 }
 
-static int t_king(void) {
+static int t_king() {
   qwc_begin("attacks.king");
   cmp_bb("king.ref", Color::WHITE, 0,  0, ref_king(0),  ref_bit(1, 0) | ref_bit(0, 1) | ref_bit(1, 1));  /* a1 */
   cmp_bb("king.ref", Color::WHITE, 63, 0, ref_king(63), ref_bit(6, 7) | ref_bit(7, 6) | ref_bit(6, 6));  /* h8 */
@@ -148,7 +152,7 @@ static int t_king(void) {
  * occupancy and compare the production attack against the coordinate reference.
  * Off-ray occupancy bits never affect a slider, so this is complete coverage of
  * the trim-at-first-blocker rule. */
-static int t_rook_exhaustive(void) {
+static int t_rook_exhaustive() {
   qwc_begin("attacks.rook.exhaustive");
   long total = 0;
   for (int sq = 0; sq < SQ_NB; sq++) {
@@ -162,7 +166,7 @@ static int t_rook_exhaustive(void) {
   QWC_EQ_U64((u64)total, 1048576ull, "rook enumeration count");
   return qwc_end();
 }
-static int t_bishop_exhaustive(void) {
+static int t_bishop_exhaustive() {
   qwc_begin("attacks.bishop.exhaustive");
   long total = 0;
   for (int sq = 0; sq < SQ_NB; sq++) {
@@ -184,7 +188,7 @@ static int t_bishop_exhaustive(void) {
  * generated occupancies never depend on that module. All unsigned ops wrap
  * well-definedly -- no UB. */
 static u64 prng_state;
-static u64 prng_next(void) {
+static u64 prng_next() {
   prng_state += 0x9E3779B97F4A7C15ull;
   u64 z = prng_state;
   z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
@@ -194,7 +198,7 @@ static u64 prng_next(void) {
 
 /* The square's own occupancy bit must not change any slider attack (the ray
  * excludes the source), and the source-free occupancy must match the reference. */
-static int t_source_invariance(void) {
+static int t_source_invariance() {
   qwc_begin("attacks.source.invariance");
   for (int sq = 0; sq < SQ_NB; sq++) {
     u64 src = (u64)1 << sq;
@@ -212,7 +216,7 @@ static int t_source_invariance(void) {
 
 /* 128 seeded full-board occupancies per square: random off-ray noise plus real
  * on-ray blockers, comparing the production queen against the reference union. */
-static int t_queen_seeded(void) {
+static int t_queen_seeded() {
   prng_state = 0x20260920ull;
   qwc_begin("attacks.queen.seeded");
   std::printf("  (seed 0x20260920; 128 full-board occ/square x 64 squares)\n");
@@ -224,7 +228,7 @@ static int t_queen_seeded(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   attacks_init();
   clock_t t0 = clock();
   int fail = 0;

@@ -27,6 +27,10 @@
 #include "core/bitboard.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -40,10 +44,10 @@ static Color other(Color c) { return (Color)(1 - (int)c); }
  * the board byte-identical. */
 static int board_equal(const Position *a, const Position *b) {
   for (int s = 0; s < SQ_NB; s++) if (a->mailbox[s] != b->mailbox[s]) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq || a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq || a->black_king_sq != b->black_king_sq) return 0;
   return 1;
 }
 
@@ -81,22 +85,22 @@ static int state_equal(const StateInfo *a, const StateInfo *b) {
 }
 
 /* Do the derived caches + key match a from-scratch rebuild of the same board?
- * pos_rebuild recomputes byPiece/byColor/occ/kings/key (it leaves the recorded
+ * pos_rebuild recomputes by_piece/by_color/occ/kings/key (it leaves the recorded
  * ep, side, cr, counters and the history pointer untouched), so this confirms
  * the incremental null produced exactly what a full rebuild would -- key included. */
 static int derived_match_rebuild(const Position *pos, const char **why) {
   Position copy = *pos;
   pos_rebuild(&copy);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != copy.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int c = 0; c < COLOR_NB; c++) if (pos->byColor[c] != copy.byColor[c]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != copy.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int c = 0; c < COLOR_NB; c++) if (pos->by_color[c] != copy.by_color[c]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != copy.occ) { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != copy.wKingSq || pos->bKingSq != copy.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != copy.white_king_sq || pos->black_king_sq != copy.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != copy.key) { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
 
 /* ---- group 1: both colors, no EP, every counter value --------------------- */
-static int t_both_colors_counters(void) {
+static int t_both_colors_counters() {
   qwc_begin("null.both_colors_counters");
   const char *why = nullptr;
   const int hms[] = { 0, 99, 100, 255, 256, 65535 };
@@ -111,13 +115,13 @@ static int t_both_colors_counters(void) {
         pos.fullmove = (FullMoveNumber)fms[fi];
         pos_rebuild(&pos);   /* keep the key consistent with the overridden side */
         /* startpos: cr == CR_ALL, ep_sq == NO_SQUARE, a1 == Piece::W_ROOK */
-        StateInfo st; std::memset(&st, 0, sizeof st);
+        StateInfo st{};
         Position before = pos;
-        char label[64];
-        std::snprintf(label, sizeof label, "null %s hm=%d fm=%d",
+        std::array<char, 64> label{};
+        std::snprintf(label.data(), label.size(), "null %s hm=%d fm=%d",
                  side == Color::WHITE ? "w" : "b", hms[hi], fms[fi]);
-        QWC_TRUE(pos_make_null_move(&pos, &st) == 1, label);
-        QWC_TRUE(board_equal(&pos, &before), label);           /* the board is untouched */
+        QWC_TRUE(pos_make_null_move(&pos, &st) == 1, label.data());
+        QWC_TRUE(board_equal(&pos, &before), label.data());           /* the board is untouched */
         QWC_EQ_I((int)pos.side, (int)other(side), "side flipped");
         QWC_EQ_I((int)pos.mailbox[0], (int)Piece::W_ROOK, "a1 still holds the rook");
         QWC_EQ_I(st.delta.edit_count, 0, "zero board edits recorded");
@@ -141,7 +145,7 @@ static int t_both_colors_counters(void) {
 
 /* ---- group 2: EP clearing + exact key contract + FEN + undo --------------- */
 static void test_ep_null(const char *fen, int exp_file_before, const char *fen_after) {
-  Position pos; StateInfo st; std::memset(&st, 0, sizeof st);
+  Position pos; StateInfo st{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, fen, &why) == 1, "load EP fixture");
   Position before = pos;
@@ -171,7 +175,7 @@ static void test_ep_null(const char *fen, int exp_file_before, const char *fen_a
   QWC_EQ_I(pos_canon_ep_file(&pos), exp_file_before, "canonical file restored on undo");
 }
 
-static int t_ep_clearing(void) {
+static int t_ep_clearing() {
   qwc_begin("null.ep_clearing");
   /* the three audited fixtures (canonical files 3 / -1 / -1) ... */
   test_ep_null("k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20",  3, "k7/8/8/3pP3/8/8/8/4K3 b - - 0 20");
@@ -186,7 +190,7 @@ static int t_ep_clearing(void) {
 
 /* ---- group 3: rejection (move 0 + every in-check type) is atomic ---------- */
 static void check_null_reject(const char *fen, const char *name) {
-  Position pos; StateInfo st; std::memset(&st, 0, sizeof st);
+  Position pos; StateInfo st{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, fen, &why) == 1, name);           /* the position itself is valid */
   QWC_TRUE(pos_is_in_check(&pos, pos.side) == 1, name);     /* sanity: it really is in check */
@@ -207,12 +211,12 @@ static void check_null_reject(const char *fen, const char *name) {
   QWC_TRUE(st.prev == nullptr, name);
 }
 
-static int t_reject(void) {
+static int t_reject() {
   qwc_begin("null.reject");
   /* an ordinary make of the 0 move (the no-move sentinel) still fails and is atomic */
   {
     Position pos; pos_set_startpos(&pos);
-    StateInfo st; std::memset(&st, 0, sizeof st);
+    StateInfo st{};
     Position pb = pos; StateInfo sb = st;
     QWC_TRUE(pos_make_move(&pos, &st, 0) == 0, "ordinary make of move 0 rejected");
     QWC_TRUE(pos_equal(&pos, &pb), "move 0 left the Position unchanged");
@@ -231,10 +235,10 @@ static int t_reject(void) {
 }
 
 /* ---- group 4: history linking/restoration + nested sequences --------------- */
-static int t_nested(void) {
+static int t_nested() {
   qwc_begin("null.nested");
   Position pos;
-  StateInfo st[8]; std::memset(st, 0, sizeof st);
+  std::array<StateInfo, 8> st{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load startpos");
   Position base = pos;
@@ -271,7 +275,7 @@ static int t_nested(void) {
 
   /* 3. special moves also push the chain: an EP capture and a castling. */
   {
-    Position p; StateInfo s; std::memset(&s, 0, sizeof s);
+    Position p; StateInfo s{};
     QWC_TRUE(fen_load(&p, "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", &why) == 1, "load EP pos");
     Position pb = p;
     QWC_TRUE(pos_make_move(&p, &s, mvf(4, 4, 3, 5, to_under(MoveFlag::MV_EP), to_under(Piece::NO_PIECE))) == 1, "EP capture accepted");
@@ -280,7 +284,7 @@ static int t_nested(void) {
     QWC_TRUE(p.history == nullptr && pos_equal(&p, &pb), "undo EP restores history + board");
   }
   {
-    Position p; StateInfo s; std::memset(&s, 0, sizeof s);
+    Position p; StateInfo s{};
     QWC_TRUE(fen_load(&p, "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 12 42", &why) == 1, "load castling pos");
     Position pb = p;
     QWC_TRUE(pos_make_move(&p, &s, mvf(4, 0, 7, 0, to_under(MoveFlag::MV_CASTLE), to_under(Piece::NO_PIECE))) == 1, "O-O accepted");
@@ -295,7 +299,7 @@ static int t_nested(void) {
     QWC_TRUE(pos.history == nullptr, "back at the root before part 4");
     QWC_TRUE(pos_make_move(&pos, &st[5], mv(6, 0, 5, 2)) == 1, "Nf3 accepted");
     QWC_TRUE(pos.history == &st[5], "history -> st[5]");
-    std::memset(&st[6], 0, sizeof st[6]);
+    st[6] = StateInfo{};
     StateInfo s6b = st[6];
     StateInfo *h_before = pos.history;
     QWC_TRUE(pos_make_move(&pos, &st[6], mv(4, 7, 4, 5)) == 0, "bad king move (e8e6) rejected");
@@ -305,7 +309,7 @@ static int t_nested(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_both_colors_counters();
   fail |= t_ep_clearing();

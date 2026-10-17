@@ -18,6 +18,10 @@
 #include "test_util.hpp"
 #include <cstring>
 #include <cstddef>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -33,11 +37,11 @@ static int pos_equal(const Position *a, const Position *b) {
   if (a->ep_sq != b->ep_sq) return 0;
   if (a->halfmove != b->halfmove) return 0;
   if (a->fullmove != b->fullmove) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
-  if (a->wKingSq != b->wKingSq) return 0;
-  if (a->bKingSq != b->bKingSq) return 0;
+  if (a->white_king_sq != b->white_king_sq) return 0;
+  if (a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
 }
@@ -61,16 +65,16 @@ static int state_equal(const StateInfo *a, const StateInfo *b) {
 }
 
 /* Do the derived caches + key match a from-scratch rebuild of the same board?
- * pos_rebuild recomputes byPiece/byColor/occ/kings/key (it leaves the recorded
+ * pos_rebuild recomputes by_piece/by_color/occ/kings/key (it leaves the recorded
  * ep_sq, side, cr and counters untouched), so this confirms the incremental
  * make() produced exactly what a full rebuild would -- including the key. */
 static int derived_match_rebuild(const Position *pos, const char **why) {
   Position copy = *pos;
   pos_rebuild(&copy);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != copy.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int c = 0; c < COLOR_NB; c++) if (pos->byColor[c] != copy.byColor[c]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != copy.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int c = 0; c < COLOR_NB; c++) if (pos->by_color[c] != copy.by_color[c]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != copy.occ) { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != copy.wKingSq || pos->bKingSq != copy.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != copy.white_king_sq || pos->black_king_sq != copy.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != copy.key) { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
@@ -109,11 +113,10 @@ static void check_reject(Position *pos, StateInfo *st, Move m, const char *name)
 }
 
 /* ---- a 3-move sequence with a StateInfo stack ----------------------------- */
-static int t_sequence(void) {
+static int t_sequence() {
   qwc_begin("makeunmake.seq_e4c5nf3");
   Position pos;
-  StateInfo st[3];
-  std::memset(st, 0, sizeof st);
+  std::array<StateInfo, 3> st{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load startpos");
   Position base = pos;
@@ -160,11 +163,10 @@ static int t_sequence(void) {
 }
 
 /* ---- the a1a8 castling-rights sequence ------------------------------------ */
-static int t_a1a8(void) {
+static int t_a1a8() {
   qwc_begin("makeunmake.a1a8_castling");
   Position pos;
-  StateInfo st;
-  std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 12 42", &why) == 1, "load a1a8 start");
   Position base = pos;
@@ -176,8 +178,8 @@ static int t_a1a8(void) {
   QWC_EQ_I((int)pos.mailbox[sq_of(7, 7)], (int)Piece::B_ROOK, "black rook h8");
   QWC_EQ_I((int)pos.mailbox[sq_of(4, 0)], (int)Piece::W_KING, "white king e1");
   QWC_EQ_I((int)pos.mailbox[sq_of(7, 0)], (int)Piece::W_ROOK, "white rook h1");
-  QWC_EQ_I((int)pos.wKingSq, (int)sq_of(4, 0), "wKingSq e1");
-  QWC_EQ_I((int)pos.bKingSq, (int)sq_of(4, 7), "bKingSq e8");
+  QWC_EQ_I((int)pos.white_king_sq, (int)sq_of(4, 0), "white_king_sq e1");
+  QWC_EQ_I((int)pos.black_king_sq, (int)sq_of(4, 7), "black_king_sq e8");
   QWC_EQ_I((int)pos.cr, (int)(CR_WK | CR_BK), "castling Kk after rook move + capture");
   QWC_EQ_I((int)pos.ep_sq, (int)NO_SQUARE, "no ep");
   QWC_EQ_I((int)pos.halfmove, 0, "halfmove reset by capture");
@@ -196,7 +198,7 @@ static int t_a1a8(void) {
 }
 
 /* ---- double push -> en-passant target (legal / pinned / no-captor) -------- */
-static int t_ep_doublepush(void) {
+static int t_ep_doublepush() {
   qwc_begin("makeunmake.ep_doublepush");
   StateInfo st;
   const char *why = nullptr;
@@ -246,7 +248,7 @@ static int t_ep_doublepush(void) {
  * the EP. Cases: rook and queen, both colors, quiet and capture, on the exact
  * two-rank-forward geometry. t_ep_doublepush above keeps the real double-pawn
  * push as the positive control. */
-static int t_ep_nonpawn(void) {
+static int t_ep_nonpawn() {
   qwc_begin("makeunmake.ep_nonpawn");
   StateInfo st;
   const char *why = nullptr;
@@ -293,7 +295,7 @@ static int t_ep_nonpawn(void) {
 }
 
 /* ---- rule-50 / fullmove counter bounds across make ------------------------ */
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("makeunmake.counters");
   StateInfo st;
 
@@ -351,10 +353,10 @@ static int t_counters(void) {
   /* fullmove 65535 + a black move would overflow -> rejected */
   {
     Position p; pos_set_startpos(&p);
-    StateInfo s1; std::memset(&s1, 0, sizeof s1);
+    StateInfo s1{};
     check_accept(&p, &s1, mv(4, 1, 4, 3), "e2e4 (white) -> black to move");
     p.fullmove = 65535;
-    StateInfo s2; std::memset(&s2, 0, sizeof s2);
+    StateInfo s2{};
     check_reject(&p, &s2, mv(4, 6, 4, 4), "fm 65535 + black e7e5 rejected (would overflow)");
   }
   /* fullmove 65535 + a white move stays 65535 (legal) */
@@ -368,11 +370,10 @@ static int t_counters(void) {
 }
 
 /* ---- malformed / unsupported moves: every reject must be atomic ----------- */
-static int t_malformed(void) {
+static int t_malformed() {
   qwc_begin("makeunmake.malformed");
   Position pos;
-  StateInfo st;
-  std::memset(&st, 0, sizeof st);
+  StateInfo st{};
 
   /* encoding-level rejects (plausible from/to, bad bits) on the start position */
   pos_set_startpos(&pos);
@@ -492,7 +493,7 @@ static int t_malformed(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_sequence();
   fail |= t_a1a8();

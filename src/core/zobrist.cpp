@@ -1,4 +1,7 @@
 #include "core/zobrist.hpp"
+#include <array>
+
+namespace qwc {
 
 /* SplitMix64 (documented fixed-seed PRNG). Advances *state in place and
  * returns the next 64-bit value. Standard SplitMix64 mix constants. */
@@ -10,7 +13,7 @@ static u64 splitmix64(u64 *state) {
 }
 
 /* Documented fixed seed (the 64-bit golden-ratio constant). */
-#define ZOB_SEED 0x9E3779B97F4A7C15ULL
+constexpr u64 ZOB_SEED = 0x9E3779B97F4A7C15ULL;
 
 /* Table generation order (deterministic):
  *   1. piece-square keys: for rank 0..7, file 0..7, piece 0..15  (square-major)
@@ -18,13 +21,13 @@ static u64 splitmix64(u64 *state) {
  *   3. castling-rights keys: rights 0..15
  *   4. en-passant-file keys: file 0..7
  */
-static u64 g_piece[PIECE_NB][SQ_NB];
-static u64 g_side[COLOR_NB];
-static u64 g_castling[16];
-static u64 g_epfile[FILE_NB];
+static std::array<std::array<u64, SQ_NB>, PIECE_NB> g_piece{};
+static std::array<u64, COLOR_NB> g_side{};
+static std::array<u64, 16> g_castling{};
+static std::array<u64, FILE_NB> g_epfile{};
 static int g_inited = 0;
 
-void zobrist_init(void) {
+void zobrist_init() {
   u64 st = ZOB_SEED;
   for (int r = 0; r < RANK_NB; r++)
     for (int f = 0; f < FILE_NB; f++)
@@ -40,7 +43,7 @@ void zobrist_init(void) {
   g_inited = 1;
 }
 
-static void ensure(void) { if (!g_inited) zobrist_init(); }
+static void ensure() { if (!g_inited) zobrist_init(); }
 
 u64 zobrist_piece(Piece p, Square sq) {
   ensure();
@@ -68,3 +71,4 @@ u64 zobrist_compute(const Piece *mailbox, Color side, u8 rights, int ep_file) {
   if (ep_file >= 0 && ep_file < FILE_NB) h ^= g_epfile[ep_file];
   return h;
 }
+}  // namespace qwc

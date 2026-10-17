@@ -41,15 +41,19 @@
 #include "core/bitboard.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 /* ---- structural-comparison helpers (never shipped) ------------------------ */
 static int pos_equal(const Position *a, const Position *b) {
   if (a->side != b->side || a->cr != b->cr || a->ep_sq != b->ep_sq ||
       a->halfmove != b->halfmove || a->fullmove != b->fullmove ||
-      a->wKingSq != b->wKingSq || a->bKingSq != b->bKingSq || a->key != b->key)
+      a->white_king_sq != b->white_king_sq || a->black_king_sq != b->black_king_sq || a->key != b->key)
     return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (a->byPiece[p] != b->byPiece[p]) return 0;
-  for (int c = 0; c < COLOR_NB; c++) if (a->byColor[c] != b->byColor[c]) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (a->by_piece[p] != b->by_piece[p]) return 0;
+  for (int c = 0; c < COLOR_NB; c++) if (a->by_color[c] != b->by_color[c]) return 0;
   if (a->occ != b->occ) return 0;
   for (int s = 0; s < SQ_NB; s++) if (a->mailbox[s] != b->mailbox[s]) return 0;
   return 1;
@@ -71,9 +75,9 @@ static int derived_match_rebuild(Position *pos, const char **why) {
   Position c = *pos;
   pos_rebuild(&c);
   if (pos_validate(&c, why) != 1) return 0;
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != c.byPiece[p]) return 0;
-  for (int col = 0; col < COLOR_NB; col++) if (pos->byColor[col] != c.byColor[col]) return 0;
-  if (pos->occ != c.occ || pos->wKingSq != c.wKingSq || pos->bKingSq != c.bKingSq || pos->key != c.key) return 0;
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != c.by_piece[p]) return 0;
+  for (int col = 0; col < COLOR_NB; col++) if (pos->by_color[col] != c.by_color[col]) return 0;
+  if (pos->occ != c.occ || pos->white_king_sq != c.white_king_sq || pos->black_king_sq != c.black_king_sq || pos->key != c.key) return 0;
   return 1;
 }
 /* Like derived_match_rebuild but WITHOUT requiring the board to validate -- for a
@@ -83,10 +87,10 @@ static int derived_match_rebuild(Position *pos, const char **why) {
 static int derived_match_raw(const Position *pos, const char **why) {
   Position c = *pos;
   pos_rebuild(&c);
-  for (int p = 0; p < PIECE_NB; p++) if (pos->byPiece[p] != c.byPiece[p]) { if (why) *why = "byPiece mismatch vs rebuild"; return 0; }
-  for (int col = 0; col < COLOR_NB; col++) if (pos->byColor[col] != c.byColor[col]) { if (why) *why = "byColor mismatch vs rebuild"; return 0; }
+  for (int p = 0; p < PIECE_NB; p++) if (pos->by_piece[p] != c.by_piece[p]) { if (why) *why = "by_piece mismatch vs rebuild"; return 0; }
+  for (int col = 0; col < COLOR_NB; col++) if (pos->by_color[col] != c.by_color[col]) { if (why) *why = "by_color mismatch vs rebuild"; return 0; }
   if (pos->occ != c.occ)          { if (why) *why = "occ mismatch vs rebuild"; return 0; }
-  if (pos->wKingSq != c.wKingSq || pos->bKingSq != c.bKingSq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
+  if (pos->white_king_sq != c.white_king_sq || pos->black_king_sq != c.black_king_sq) { if (why) *why = "king square mismatch vs rebuild"; return 0; }
   if (pos->key != c.key)          { if (why) *why = "key mismatch vs rebuild"; return 0; }
   return 1;
 }
@@ -115,21 +119,21 @@ static Square s(int f, int r) { return square_of((Square)f, (Square)r); }
 static void expect_promo(Position *pos, StateInfo *st, Move m, int cr_after,
                          int expect_valid, const char *ctx) {
   Position base = *pos;
-  std::memset(st, 0, sizeof *st);
+  *st = StateInfo{};
   Square from = move_from(m), to = move_to(m);
   Color side = pos->side;
   Piece promoted = (Piece)(move_promo(m) + (side == Color::BLACK ? 8 : 0));
   Piece victim = pos->mailbox[to];
-  Square wk = pos->wKingSq, bk = pos->bKingSq;
+  Square wk = pos->white_king_sq, bk = pos->black_king_sq;
   int nfm = (side == Color::BLACK) ? (int)pos->fullmove + 1 : (int)pos->fullmove;
 
   QWC_TRUE(pos_make_move(pos, st, m) == 1, ctx);
   QWC_EQ_I((int)pos->mailbox[to], promoted, "promoted piece lands on destination");
   QWC_EQ_I((int)pos->mailbox[from], 0, "pawn removed from origin");
   if (victim != Piece::NO_PIECE)
-    QWC_TRUE((pos->byPiece[to_under(victim)] & square_bb(to)) == 0, "captured victim removed");
-  QWC_EQ_I((int)pos->wKingSq, (int)wk, "white king square unchanged");
-  QWC_EQ_I((int)pos->bKingSq, (int)bk, "black king square unchanged");
+    QWC_TRUE((pos->by_piece[to_under(victim)] & square_bb(to)) == 0, "captured victim removed");
+  QWC_EQ_I((int)pos->white_king_sq, (int)wk, "white king square unchanged");
+  QWC_EQ_I((int)pos->black_king_sq, (int)bk, "black king square unchanged");
   QWC_EQ_I((int)pos->side, (int)cother(side), "side flips");
   QWC_EQ_I((int)pos->halfmove, 0, "halfmove resets to 0");
   QWC_EQ_I((int)pos->fullmove, nfm, "fullmove unchanged (white) / +1 (black)");
@@ -154,7 +158,7 @@ static void expect_promo(Position *pos, StateInfo *st, Move m, int cr_after,
  * so the slot can be reused). */
 static void assert_reject(Position *pos, StateInfo *st, Move m, const char *name) {
   Position pb = *pos;
-  std::memset(st, 0, sizeof *st);
+  *st = StateInfo{};
   StateInfo sb = *st;
   QWC_TRUE(pos_make_move(pos, st, m) == 0, name);
   QWC_TRUE(pos_equal(pos, &pb), "pos unchanged after rejection");
@@ -162,7 +166,7 @@ static void assert_reject(Position *pos, StateInfo *st, Move m, const char *name
 }
 
 /* ---- straight promotions: every file, all four types, both colors ---------- */
-static int t_straight(void) {
+static int t_straight() {
   qwc_begin("promo.straight");
   for (int c = 0; c < 2; c++) {
     Color side = (Color)c;
@@ -176,12 +180,12 @@ static int t_straight(void) {
         place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_1 : RANK_3), (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING);
         place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_6 : RANK_8), (side == Color::WHITE) ? Piece::B_KING : Piece::W_KING);
         Square from = s(f, penult), to = s(f, final);
-        char ctx[48];
-        std::snprintf(ctx, sizeof ctx, "%s %c%d->%c%d=%c",
+        std::array<char, 48> ctx{};
+        std::snprintf(ctx.data(), ctx.size(), "%s %c%d->%c%d=%c",
                  (side == Color::WHITE ? "w" : "b"), "abcdefgh"[f], "12345678"[penult],
                  "abcdefgh"[f], "12345678"[final], "NBRQ"[pt - to_under(PieceType::KNIGHT)]);
         StateInfo st;
-        expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, (u32)pt), -1, 1, ctx);
+        expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, (u32)pt), -1, 1, ctx.data());
       }
     }
   }
@@ -189,7 +193,7 @@ static int t_straight(void) {
 }
 
 /* ---- capture promotions: a one-file diagonal onto every enemy piece type --- */
-static int t_capture(void) {
+static int t_capture() {
   qwc_begin("promo.capture");
   const int enemy_types[4] = { to_under(PieceType::KNIGHT), to_under(PieceType::BISHOP), to_under(PieceType::ROOK), to_under(PieceType::QUEEN) };
   for (int c = 0; c < 2; c++) {
@@ -206,11 +210,11 @@ static int t_capture(void) {
       place(&pos, to, (Piece)enemy);
       place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_1 : RANK_3), (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING);
       place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_6 : RANK_8), (side == Color::WHITE) ? Piece::B_KING : Piece::W_KING);
-      char ctx[48];
-      std::snprintf(ctx, sizeof ctx, "%s b%dxa%d=Q (victim %c)",
+      std::array<char, 48> ctx{};
+      std::snprintf(ctx.data(), ctx.size(), "%s b%dxa%d=Q (victim %c)",
                (side == Color::WHITE ? "w" : "b"), penult + 1, final + 1, "NBRQ"[t]);
       StateInfo st;
-      expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), -1, 1, ctx);
+      expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), -1, 1, ctx.data());
     }
   }
   /* edge files: the a-file and h-file diagonals must not wrap. white a7xb8 and
@@ -231,12 +235,12 @@ static int t_capture(void) {
       place(&pos, to, (Piece)enemy);
       place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_1 : RANK_3), (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING);
       place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_6 : RANK_8), (side == Color::WHITE) ? Piece::B_KING : Piece::W_KING);
-      char ctx[48];
-      std::snprintf(ctx, sizeof ctx, "%s %c%dx%c%d=Q (edge, no wrap)",
+      std::array<char, 48> ctx{};
+      std::snprintf(ctx.data(), ctx.size(), "%s %c%dx%c%d=Q (edge, no wrap)",
                (side == Color::WHITE ? "w" : "b"), "abcdefgh"[edges[e].ff], penult + 1,
                "abcdefgh"[edges[e].tf], final + 1);
       StateInfo st;
-      expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), -1, 1, ctx);
+      expect_promo(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), -1, 1, ctx.data());
     }
   }
   /* capturing a king is never legal, even with MoveFlag::MV_PROMO: rejected atomically. */
@@ -251,15 +255,15 @@ static int t_capture(void) {
     place(&pos, to, (side == Color::WHITE) ? Piece::B_KING : Piece::W_KING);       /* the enemy king on the destination */
     place(&pos, s(FILE_E, (side == Color::WHITE) ? RANK_1 : RANK_3), (side == Color::WHITE) ? Piece::W_KING : Piece::B_KING);
     StateInfo st;
-    char ctx[48];
-    std::snprintf(ctx, sizeof ctx, "%s captures the king (rejected)", (side == Color::WHITE ? "w" : "b"));
-    assert_reject(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), ctx);
+    std::array<char, 48> ctx{};
+    std::snprintf(ctx.data(), ctx.size(), "%s captures the king (rejected)", (side == Color::WHITE ? "w" : "b"));
+    assert_reject(&pos, &st, make_move(from, to, MoveFlag::MV_PROMO, PieceType::QUEEN), ctx.data());
   }
   return qwc_end();
 }
 
 /* ---- castling-rights transitions when a promo captures a home-square rook -- */
-static int t_castling(void) {
+static int t_castling() {
   qwc_begin("promo.castling_rights");
   struct Case { Color side; int ff, tf; PieceType promo; int expect_cr; const char *ctx; };
   const struct Case cases[5] = {
@@ -302,7 +306,7 @@ static void base7(Position *p) {
 }
 
 /* ---- every atomic rejection the make path must honor ----------------------- */
-static int t_reject(void) {
+static int t_reject() {
   qwc_begin("promo.reject");
   Position pos; StateInfo st;
   Square a7 = s(FILE_A, RANK_7), a8 = s(FILE_A, RANK_8), b8 = s(FILE_B, RANK_8),
@@ -358,7 +362,7 @@ static int t_reject(void) {
 }
 
 /* ---- the canonical a7a8=Q make then a8a7 undo: full state + the undo record */
-static int t_sequence(void) {
+static int t_sequence() {
   qwc_begin("promo.sequence");
   Position pos;
   newpos(&pos, Color::WHITE, CR_WK | CR_WQ, 7, 20);   /* a8 empty, so a7a8=Q is a straight promo */
@@ -368,8 +372,7 @@ static int t_sequence(void) {
   place(&pos, s(FILE_E, RANK_1), Piece::W_KING);
   place(&pos, s(FILE_E, RANK_8), Piece::B_KING);
   Position base = pos;
-  StateInfo st;
-  std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   Move promo = make_move(s(FILE_A, RANK_7), s(FILE_A, RANK_8), MoveFlag::MV_PROMO, PieceType::QUEEN);
   QWC_TRUE(pos_make_move(&pos, &st, promo) == 1, "a7a8=Q applies");
   QWC_EQ_I((int)st.prev_side, (int)Color::WHITE, "undo record: prev side");
@@ -395,7 +398,7 @@ static int t_sequence(void) {
 }
 
 /* ---- the null move remains a rejection, not a promotion -------------------- */
-static int t_null(void) {
+static int t_null() {
   qwc_begin("promo.null");
   Position pos;
   base7(&pos);
@@ -421,7 +424,7 @@ static Move straight_promo(Color side) {
   int fin    = (side == Color::WHITE) ? RANK_8 : RANK_1;
   return make_move(s(FILE_A, penult), s(FILE_A, fin), MoveFlag::MV_PROMO, PieceType::QUEEN);
 }
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("promo.counters");
   Position pos; StateInfo st; Position base;
   promo_base(&pos, Color::WHITE, 65535, 1); base = pos;
@@ -457,7 +460,7 @@ static int t_counters(void) {
  * (raw ep -> NO_SQUARE) and the key loses any canonical-ep-file contribution;
  * unmake restores the exact raw record + key. "present" is a capturable EP whose
  * file is in the key; "absent" is a recorded-but-uncapturable EP (no key file). */
-static int t_epclear(void) {
+static int t_epclear() {
   qwc_begin("promo.epclear");
   const char *fens[2] = {
     "8/P3k3/8/3pP3/8/8/8/4K3 w - d6 0 1",  /* capturable: e5 pawn takes d6 -> FILE_D in key */
@@ -492,7 +495,7 @@ static int t_epclear(void) {
  * piece, with complete LIFO restoration. Structural make (not legality) is the
  * point: both moves apply, both unmake in strict LIFO order, and the whole
  * Position (board, derived caches, counters, key) comes back exact. */
-static int t_nested(void) {
+static int t_nested() {
   qwc_begin("promo.nested");
   Position pos; StateInfo s0, s1;
   /* A: a capture-promo creates a queen; the enemy king then captures it. */
@@ -536,7 +539,7 @@ static int t_nested(void) {
  * caches/key against a NON-validating rebuild, but deliberately do NOT run
  * pos_validate / fen_emit on the unsafe result. Tested with its rank-reflect /
  * color-swap mirror. */
-static int t_pinned(void) {
+static int t_pinned() {
   qwc_begin("promo.pinned");
   const char *why = nullptr;
   /* original (white to move): a8 black rook + b8 black bishop (the diagonal
@@ -551,7 +554,7 @@ static int t_pinned(void) {
   place(&pos, s(FILE_B, RANK_8), Piece::B_BISHOP);
   place(&pos, s(FILE_H, RANK_8), Piece::B_KING);
   Position base = pos;
-  StateInfo st; std::memset(&st, 0, sizeof st);
+  StateInfo st{};
   QWC_TRUE(pos_make_move(&pos, &st, make_move(s(FILE_A, RANK_7), s(FILE_B, RANK_8), MoveFlag::MV_PROMO, PieceType::QUEEN)) == 1, "pinned a7xb8=Q applies structurally");
   QWC_EQ_I((int)pos.mailbox[s(FILE_B, RANK_8)], (int)Piece::W_QUEEN, "the promoted queen lands on b8");
   QWC_EQ_I((int)pos.mailbox[s(FILE_A, RANK_7)], 0, "the origin a7 is empty (opening the a-file)");
@@ -582,7 +585,7 @@ static int t_pinned(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_straight();
   fail |= t_capture();

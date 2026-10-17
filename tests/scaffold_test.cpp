@@ -20,9 +20,13 @@
 #include <cstdio>
 #include <cstdint>
 #include <type_traits>
+#include <array>
+#include <algorithm>
 #include "core/types.hpp"
 #include "platform/clock.hpp"
 #include "position/position.hpp"   // Position; transitively state.hpp (StateInfo/MoveDelta/SquareEdit)
+
+using namespace qwc;
 
 /* Compile-time invariants (duplicating the ones in types.hpp so this test is
  * self-contained about the conventions it relies on). */
@@ -101,7 +105,7 @@ static_assert(sizeof(SquareEdit) == 3 && alignof(SquareEdit) == 1, "x86-64: Squa
 #endif
 
 /* Runtime: compact move encoding round-trips all fields. */
-static int test_move_roundtrip(void) {
+static int test_move_roundtrip() {
   Move castle = make_move(4, 3, to_under(MoveFlag::MV_CASTLE), 0);  /* e1-h1 style (a1->d1) */
   if (move_from(castle) != 4 || move_to(castle) != 3 ||
       move_flags(castle) != to_under(MoveFlag::MV_CASTLE) || move_promo(castle) != 0)
@@ -122,21 +126,21 @@ static int test_move_roundtrip(void) {
 }
 
 /* Runtime: the clock is monotonic (nondecreasing). ~1e5 vDSO reads, a few ms. */
-static int test_clock_monotonic(void) {
-  i64 prev = qwc_clock_now_ns();
+static int test_clock_monotonic() {
+  i64 prev = clock_now_ns();
   if (prev < 0)
     return 0; /* clock error */
   for (int i = 0; i < 100000; i++) {
-    i64 t = qwc_clock_now_ns();
+    i64 t = clock_now_ns();
     if (t < 0 || t < prev)
       return 0; /* regression */
     prev = t;
   }
-  i64 us = qwc_clock_now_us();
+  i64 us = clock_now_us();
   return us >= 0;
 }
 
-int main(void) {
+int main() {
   int ok = 1;
   ok &= test_move_roundtrip();
   ok &= test_clock_monotonic();

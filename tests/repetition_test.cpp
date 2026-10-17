@@ -34,6 +34,10 @@
 #include "core/bitboard.hpp"
 #include "test_util.hpp"
 #include <cstring>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 static Square sq_of(int f, int r) { return square_of((Square)f, (Square)r); }
 
@@ -59,10 +63,10 @@ static const int cyc[4][4] = {
   { 5, 5, 6, 7 },   /* f6g8 */
 };
 
-static int t_basic_cycle(void) {
+static int t_basic_cycle() {
   qwc_begin("rep.basic_cycle");
   Position pos;
-  StateInfo hist[8]; std::memset(hist, 0, sizeof hist);
+  std::array<StateInfo, 8> hist{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load startpos");
   QWC_TRUE(pos.history == nullptr, "fresh: history is nullptr");
@@ -97,10 +101,10 @@ static int t_basic_cycle(void) {
   return qwc_end();
 }
 
-static int t_consecutive_nulls(void) {
+static int t_consecutive_nulls() {
   qwc_begin("rep.consecutive_nulls");
   Position pos;
-  StateInfo hist[8]; std::memset(hist, 0, sizeof hist);
+  std::array<StateInfo, 8> hist{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load");
   QWC_EQ_I(pos_repetition_count(&pos), 1, "fresh counts 1");
@@ -119,10 +123,10 @@ static int t_consecutive_nulls(void) {
  * a subsequent null + a normal cycle. The nulls are the repetition boundary:
  * positions that match a PRE-null node are not counted, and a null node itself
  * counts 0. */
-static int t_null_boundary(void) {
+static int t_null_boundary() {
   qwc_begin("rep.null_boundary");
   Position pos;
-  StateInfo hist[24]; std::memset(hist, 0, sizeof hist);
+  std::array<StateInfo, 24> hist{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load");
   QWC_EQ_I(pos_repetition_count(&pos), 1, "fresh counts 1");
@@ -182,7 +186,7 @@ static int t_null_boundary(void) {
 static void run_null_match(const char *fen, const int mv[5][4],
                            const char *exp_final_fen, const char *name) {
   Position pos;
-  StateInfo hist[5]; std::memset(hist, 0, sizeof hist);
+  std::array<StateInfo, 5> hist{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, fen, &why) == 1, name);
   u64 initial_key = pos.key;
@@ -192,7 +196,7 @@ static void run_null_match(const char *fen, const int mv[5][4],
     do_move(&pos, &hist[i], mv[i][0], mv[i][1], mv[i][2], mv[i][3], 0, 0, "a real transition");
   /* the five moves restore the initial placement with the side flipped */
   QWC_TRUE(pos.key != initial_key, "after five moves the side flipped (key != initial)");
-  StateInfo nrec; std::memset(&nrec, 0, sizeof nrec);
+  StateInfo nrec{};
   QWC_TRUE(pos_make_null_move(&pos, &nrec) == 1, "the null is accepted");
   QWC_EQ_U64(pos.key, initial_key, "the null restores the initial key (board + side)");
   QWC_EQ_I(pos_repetition_count(&pos), 0, "a null matching an earlier real position counts 0");
@@ -210,7 +214,7 @@ static void run_null_match(const char *fen, const int mv[5][4],
   QWC_EQ_I(pos_repetition_count(&pos), 1, "undo restores the occurrence count to 1");
 }
 
-static int t_null_match_boundary(void) {
+static int t_null_match_boundary() {
   qwc_begin("rep.null_match_boundary");
   /* the exact supplied sequence: white king + black rook cycle, then a null */
   static const int orig[5][4] = {
@@ -241,10 +245,10 @@ static int t_null_match_boundary(void) {
  * preserving it, and two coexisting arrays. */
 #define CYCLES 65
 #define PLIES (CYCLES * 4)   /* 260, > MAX_PLY (256) */
-static int t_storage(void) {
+static int t_storage() {
   qwc_begin("rep.storage");
   Position pos;
-  StateInfo hist[PLIES]; std::memset(hist, 0, sizeof hist);
+  std::array<StateInfo, PLIES> hist{};
   const char *why = nullptr;
   QWC_TRUE(fen_load(&pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &why) == 1, "load");
 
@@ -272,7 +276,7 @@ static int t_storage(void) {
   {
     StateInfo *head260 = pos.history;   /* the 260-ply head (count 66) */
     QWC_TRUE(pos.history == &hist[PLIES - 1], "the head is the last deep record");
-    StateInfo search[4]; std::memset(search, 0, sizeof search);
+    std::array<StateInfo, 4> search{};
     for (int i = 0; i < 4; i++)
       do_move(&pos, &search[i], cyc[i][0], cyc[i][1], cyc[i][2], cyc[i][3], 0, 0, "an attached search move");
     QWC_TRUE(pos.history == &search[3], "the attached head is the new last record");
@@ -305,14 +309,14 @@ static int t_storage(void) {
   /* the abandoned old chain (still alive in `hist`) and a distinct bounded
    * record can coexist: the loaded position's move links into the new record,
    * not into the abandoned deep array. */
-  StateInfo bound; std::memset(&bound, 0, sizeof bound);
+  StateInfo bound{};
   do_move(&pos, &bound, 6, 0, 5, 2, 0, 0, "Nf3 into the loaded position");
   QWC_TRUE(pos.history == &bound, "the loaded position's history points at the new record");
   QWC_TRUE(pos.history != &hist[0], "it does not point into the abandoned deep array");
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = 0;
   fail |= t_basic_cycle();
   fail |= t_consecutive_nulls();

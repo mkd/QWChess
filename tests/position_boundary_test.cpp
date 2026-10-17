@@ -6,18 +6,22 @@
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
+#include <array>
+#include <algorithm>
+
+using namespace qwc;
 
 static int logical_equal(const Position *a, const Position *b) {
-  return std::memcmp(a->mailbox, b->mailbox, sizeof a->mailbox) == 0 &&
+  return a->mailbox == b->mailbox &&
     a->side == b->side && a->cr == b->cr && a->ep_sq == b->ep_sq &&
     a->halfmove == b->halfmove && a->fullmove == b->fullmove &&
-    std::memcmp(a->byPiece, b->byPiece, sizeof a->byPiece) == 0 &&
-    std::memcmp(a->byColor, b->byColor, sizeof a->byColor) == 0 &&
-    a->occ == b->occ && a->wKingSq == b->wKingSq &&
-    a->bKingSq == b->bKingSq && a->key == b->key;
+    a->by_piece == b->by_piece &&
+    a->by_color == b->by_color &&
+    a->occ == b->occ && a->white_king_sq == b->white_king_sq &&
+    a->black_king_sq == b->black_king_sq && a->key == b->key;
 }
 
-static int t_counters(void) {
+static int t_counters() {
   qwc_begin("boundary.counters");
   const int values[] = {0, 99, 100, 101, 149, 150, 255, 256, 65535};
   for (std::size_t i = 0; i < sizeof values / sizeof values[0]; i++) {
@@ -56,7 +60,7 @@ static int t_counters(void) {
   return qwc_end();
 }
 
-static int t_piece_codes(void) {
+static int t_piece_codes() {
   qwc_begin("boundary.piece_codes");
   for (unsigned code = 1; code <= 255; code++) {
     /* Numeric ranges are frozen by types.hpp, not inferred from the validator. */
@@ -80,12 +84,12 @@ static int t_piece_codes(void) {
   }
   Position p;
   pos_set_startpos(&p);
-  p.byPiece[0] = 1;
+  p.by_piece[0] = 1;
   QWC_TRUE(!pos_validate(&p, nullptr), "unused empty-piece cache must remain zero");
   return qwc_end();
 }
 
-static int t_ep_metadata(void) {
+static int t_ep_metadata() {
   qwc_begin("boundary.ep_metadata");
   Position base;
   int ok = fen_load(&base, "k7/8/8/3pP3/8/8/8/4K3 w - d6 0 20", nullptr);
@@ -120,7 +124,7 @@ static int t_ep_metadata(void) {
   return qwc_end();
 }
 
-static int t_emit_capacity(void) {
+static int t_emit_capacity() {
   qwc_begin("boundary.emit_capacity");
   Position p;
   pos_set_startpos(&p);
@@ -137,7 +141,7 @@ static int t_emit_capacity(void) {
   return qwc_end();
 }
 
-int main(void) {
+int main() {
   int fail = t_counters();
   fail |= t_piece_codes();
   fail |= t_ep_metadata();

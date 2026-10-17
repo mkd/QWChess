@@ -240,13 +240,46 @@ StateInfo 48/8, MoveDelta 20/4, SquareEdit 3/1). (The sanitizer *run* on this ho
 constrained by libasan loader ordering — see STATE; the instrumented binaries build and
 run cleanly via a documented preload.)
 
-### CPP20-2B — project namespace, naming, typed constants, fixed storage  ← NEXT
+### CPP20-2B — project namespace, naming, typed constants, fixed storage  ✅ DONE
 Introduce the project namespace; apply the frozen naming conventions (PascalCase domain
 types, snake_case functions/variables, UPPER_SNAKE constants/enumerators —
 ARCHITECTURE.md Engineering policy); convert the remaining typed constants and fixed-size
 storage to `std::array` (e.g. `Square mailbox[64]`); preserve behavior and document the
 migrated surface. **No language-standard increase, no new CPU flags, no ISA.** The M1
 board work resumes at T005 cp2 after 2B.
+
+Landed as five deliberately-ordered, independently-verifying batches (each compiled +
+tested green before the next):
+- **(1) names + namespaces:** domain types into `namespace qwc` (`Square`/`Piece`/`Color`/
+  `PieceType`/`MoveFlag`/`Move`/`Value`/`File`/`Rank`/`DIR`/`EpTarget` + `Position`/
+  `StateInfo`/`MoveDelta`/`SearchState`/`SearchLimits`/`SearchResult`); PascalCase types,
+  snake_case functions/variables, UPPER_SNAKE constants/enumerators; the `enum`→
+  `enum class` byte/value boundary re-expressed with `to_under`/`static_cast`; tests use
+  `using namespace qwc`.
+- **(2) constants:** the numeric constants frozen as typed `constexpr` (`POS_HM_MAX`
+  u16, `POS_FM_MAX` u32, `FEN_BUF_SIZE` std::size_t, `DIR_NB` int, `MAX_PLY` int,
+  `MAX_PLY_STACK` size_t) — the raw `0xFFFF`/`0xFFFFFFFF`/`1<<30` spellings removed.
+- **(3) storage:** every fixed-size *data* array → `std::array` (Position `mailbox`/
+  `by_piece`/`by_color`, `MoveDelta.squares`/`pieces`/`occ_delta`/`king_sq_delta`,
+  attack/zobrist/fen tables+scratch, the TState test struct); the C-string/move-buffer
+  boundary takes `.data()`/`.size()`; byte-ops become typed (`fill`, `==`, value-init,
+  value-copy) with no `sizeof T*sizeof T` or `memcmp`-for-equality; the **retained**
+  `char out[3]`/`char dst[512]`/`const char**` **function parameters** stay pointers.
+- **(4) bitboards:** `bitboard.hpp` documented as endianness-agnostic (bit *index*
+  convention, not byte order) + a 64-bit-width `static_assert` trap; the `QWC_FORCE_
+  PORTABLE_BITS` fallback gains a reproducible `make test-portable-bits` target.
+- **(5) build matrix + verification:** `make clean`/`-j`/`debug`/`release`/`sanitize`/
+  `check-c`/`check-cpp20`/`test`/`test-sanitize` all work; a `check-c` C-residue gate
+  (no C-only constructs / C-compiler extensions) complements `check-cpp20`.
+
+**Exit gate (met this commit):** `check-c` (no C residue) + `check-cpp20` (23 files,
+no non-C++20 constructs) green; release build 0 warnings under `-Wall -Wextra -Wshadow
+-Wconversion -Wwrite-strings`; **186 PASS / 0 fail in all three configs** (release,
+debug, and sanitize — the sanitize *run* via the documented `LD_PRELOAD=libasan.so.8`
+workaround for this host's `/etc/ld.so.preload`, 0 ASan/UBSan issues); the `static_assert`
+layout contract unchanged (Position 248/8, StateInfo 48/8, MoveDelta 20/4, SquareEdit
+3/1); **0 raw C array declarations in `src/`** (all data arrays are `std::array`); **0 new
+`<cstdint>` includes**. The `QWC_FORCE_PORTABLE_BITS` portable-bits path is tested.
 
 ### CPP20-3 — interfaces/ownership + platform services + output + documentation
 Interface/ownership cleanup: references/pointers for output parameters; `std::span`/
@@ -279,7 +312,7 @@ into M6; old CPP20-6 platform work splits across CPP20-3/4.)
 
 ## Deliberately deferred (roadmap — scheduled only on later, measured need)
 - **C++20 migration (a).** Now the active **C++20 Modernization Workstream** above
-  (CPP20-1 + CPP20-2A done, CPP20-2B next) — no longer deferred. Its continuing rules:
+  (CPP20-1 + CPP20-2A + CPP20-2B done, CPP20-3 next) — no longer deferred. Its continuing rules:
   gate on C++20 + the platform standard library, keep the full correctness/NNUE/search
   regression suite green, record the new build + sanitizer coverage, and keep UCI,
   determinism and the single-worker mode identical.
@@ -293,8 +326,9 @@ into M6; old CPP20-6 platform work splits across CPP20-3/4.)
 ---
 
 ## Ordered backlog (IDs reserved)
-C++20 track: `CPP20-1 ✅ → CPP20-2A ✅ → CPP20-2B ← next → CPP20-3 → CPP20-4`
-(2A = scoped enums + closeout; the old CPP20-5 ISA experiment is absorbed into M6).
+C++20 track: `CPP20-1 ✅ → CPP20-2A ✅ → CPP20-2B ✅ → CPP20-3 ← next → CPP20-4`
+(2A = scoped enums + closeout; 2B = namespace + naming + typed constants + `std::array`
+storage + bitboards + build matrix; the old CPP20-5 ISA experiment is absorbed into M6).
 Milestones: `T005 cp2` (legal movegen) → `cp3` (castling) → `cp4` (perft = M1 exit)
 → `T006..T007` (M2) → `T008..T010` (M3) → `T011` (M4) → `T012..` (M5 strength)
 → `T…` (M6) → `T…` (M7).

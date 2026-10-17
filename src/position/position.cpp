@@ -2,16 +2,18 @@
 #include "core/square.hpp"
 #include "core/attacks.hpp"
 #include "core/zobrist.hpp"
-#include <cstring>
+#include <array>
+
+namespace qwc {
 
 void pos_reset(Position *pos) {
-  std::memset(pos, 0, sizeof *pos);
+  *pos = Position{};
   pos->side = Color::WHITE; pos->ep_sq = NO_SQUARE; pos->fullmove = 1;
   pos_rebuild(pos);   /* consistent empty state: derived fields + key all match */
 }
 
 void pos_set_startpos(Position *pos) {
-  std::memset(pos, 0, sizeof *pos);
+  *pos = Position{};
   /* pawn ranks: white on rank 1 (squares 8..15), black on rank 6 (48..55). */
   for (int f = 0; f < FILE_NB; f++) {
     pos->mailbox[8 + f]  = Piece::W_PAWN;
@@ -58,8 +60,8 @@ static int piece_attacks(Piece p, Square from, Square to, u64 occ) {
  * legal move generation is performed. FIDE 3.1.3/3.7.3/3.9.2/9.2.3. */
 static int ep_capture_is_safe(const Position *pos, Square captor, Square origin,
                               Square target, Piece own_pawn) {
-  Piece board[SQ_NB];
-  std::memcpy(board, pos->mailbox, sizeof board);   /* byte-identical (both 1-byte elements) */
+  std::array<Piece, SQ_NB> board{};
+  board = pos->mailbox;   /* typed value copy of the authoritative board */
   board[captor]  = Piece::NO_PIECE;   /* captor leaves its origin   */
   board[origin]  = Piece::NO_PIECE;   /* captured pawn removed       */
   board[target]  = own_pawn;   /* captor lands on the target  */
@@ -179,24 +181,24 @@ int pos_ep_is_valid_meta(const Position *pos) {
 }
 
 u64 pos_key(const Position *pos) {
-  return zobrist_compute(pos->mailbox, pos->side, pos->cr, pos_canon_ep_file(pos));
+  return zobrist_compute(pos->mailbox.data(), pos->side, pos->cr, pos_canon_ep_file(pos));
 }
 
 void pos_rebuild(Position *pos) {
-  for (int p = 0; p < PIECE_NB; p++) pos->byPiece[p] = 0;
-  pos->byColor[to_under(Color::WHITE)] = 0;
-  pos->byColor[to_under(Color::BLACK)] = 0;
+  for (int p = 0; p < PIECE_NB; p++) pos->by_piece[p] = 0;
+  pos->by_color[to_under(Color::WHITE)] = 0;
+  pos->by_color[to_under(Color::BLACK)] = 0;
   for (int s = 0; s < SQ_NB; s++) {
     int p = to_under(pos->mailbox[s]);
     if (!p || p >= PIECE_NB)
       continue;
     u64 b = square_bb((Square)s);
-    pos->byPiece[p] |= b;
-    pos->byColor[p >= to_under(Piece::B_PAWN)] |= b;
+    pos->by_piece[p] |= b;
+    pos->by_color[p >= to_under(Piece::B_PAWN)] |= b;
   }
-  pos->occ = pos->byColor[to_under(Color::WHITE)] | pos->byColor[to_under(Color::BLACK)];
-  pos->wKingSq = popcount(pos->byPiece[to_under(Piece::W_KING)]) ? (Square)lsb_index(pos->byPiece[to_under(Piece::W_KING)]) : (Square)NO_SQUARE;
-  pos->bKingSq = popcount(pos->byPiece[to_under(Piece::B_KING)]) ? (Square)lsb_index(pos->byPiece[to_under(Piece::B_KING)]) : (Square)NO_SQUARE;
+  pos->occ = pos->by_color[to_under(Color::WHITE)] | pos->by_color[to_under(Color::BLACK)];
+  pos->white_king_sq = popcount(pos->by_piece[to_under(Piece::W_KING)]) ? (Square)lsb_index(pos->by_piece[to_under(Piece::W_KING)]) : (Square)NO_SQUARE;
+  pos->black_king_sq = popcount(pos->by_piece[to_under(Piece::B_KING)]) ? (Square)lsb_index(pos->by_piece[to_under(Piece::B_KING)]) : (Square)NO_SQUARE;
   pos->key = pos_key(pos);
 }
 
@@ -204,11 +206,11 @@ void pos_rebuild(Position *pos) {
 static int v_kings(const Position *p, const char **why) {
   for (int c = 0; c < COLOR_NB; c++) {
     int k = (c == to_under(Color::WHITE)) ? to_under(Piece::W_KING) : to_under(Piece::B_KING);
-    int n = popcount(p->byPiece[k]);
+    int n = popcount(p->by_piece[k]);
     if (n != 1) { if (why) *why = (c == to_under(Color::WHITE)) ? "white king count != 1" : "black king count != 1"; return 0; }
-    Square sq = (Square)lsb_index(p->byPiece[k]);
+    Square sq = (Square)lsb_index(p->by_piece[k]);
     if (sq >= SQ_NB) { if (why) *why = "king square out of range"; return 0; }
-    Square cs = (c == to_under(Color::WHITE)) ? p->wKingSq : p->bKingSq;
+    Square cs = (c == to_under(Color::WHITE)) ? p->white_king_sq : p->black_king_sq;
     if (cs != sq) { if (why) *why = "cached king square != recomputed"; return 0; }
   }
   return 1;
@@ -244,7 +246,7 @@ static Color other(Color c) { return (Color)(1 - (int)c); }
  * validator (v_no_check_nonmover) and by the null move, which rejects a pass
  * while the side to move is in check. */
 int pos_is_in_check(const Position *pos, Color victim) {
-  Square king = (victim == Color::WHITE) ? pos->wKingSq : pos->bKingSq;
+  Square king = (victim == Color::WHITE) ? pos->white_king_sq : pos->black_king_sq;
   if (king >= SQ_NB)
     return 0;
   u64 occ = 0;
@@ -265,16 +267,16 @@ int pos_is_in_check(const Position *pos, Color victim) {
 
 /* The two kings must not sit on adjacent squares. */
 static int v_adjacent_kings(const Position *p, const char **why) {
-  if (p->wKingSq >= SQ_NB || p->bKingSq >= SQ_NB) { if (why) *why = "missing king for the adjacency check"; return 0; }
-  if ((king_attacks(p->wKingSq) & square_bb(p->bKingSq)) != 0) { if (why) *why = "kings are on adjacent squares"; return 0; }
+  if (p->white_king_sq >= SQ_NB || p->black_king_sq >= SQ_NB) { if (why) *why = "missing king for the adjacency check"; return 0; }
+  if ((king_attacks(p->white_king_sq) & square_bb(p->black_king_sq)) != 0) { if (why) *why = "kings are on adjacent squares"; return 0; }
   return 1;
 }
 
 /* Pawns cannot occupy the first or eighth ranks. */
 static int v_pawn_ranks(const Position *p, const char **why) {
   u64 edge = rank_bb(0) | rank_bb(7);
-  if ((p->byPiece[to_under(Piece::W_PAWN)] & edge) != 0) { if (why) *why = "a white pawn is on the first/eighth rank"; return 0; }
-  if ((p->byPiece[to_under(Piece::B_PAWN)] & edge) != 0) { if (why) *why = "a black pawn is on the first/eighth rank"; return 0; }
+  if ((p->by_piece[to_under(Piece::W_PAWN)] & edge) != 0) { if (why) *why = "a white pawn is on the first/eighth rank"; return 0; }
+  if ((p->by_piece[to_under(Piece::B_PAWN)] & edge) != 0) { if (why) *why = "a black pawn is on the first/eighth rank"; return 0; }
   return 1;
 }
 
@@ -283,8 +285,8 @@ static int v_pawn_ranks(const Position *p, const char **why) {
 static int v_piece_counts(const Position *p, const char **why) {
   for (int c = 0; c < COLOR_NB; c++) {
     int pc = (c == to_under(Color::WHITE)) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN);
-    if (popcount(p->byPiece[pc]) > 8) { if (why) *why = "a color has more than eight pawns"; return 0; }
-    if (popcount(p->byColor[c]) > 16) { if (why) *why = "a color has more than sixteen pieces"; return 0; }
+    if (popcount(p->by_piece[pc]) > 8) { if (why) *why = "a color has more than eight pawns"; return 0; }
+    if (popcount(p->by_color[c]) > 16) { if (why) *why = "a color has more than sixteen pieces"; return 0; }
   }
   return 1;
 }
@@ -300,10 +302,10 @@ static int v_no_check_nonmover(const Position *p, const char **why) {
  * Blocked paths or attacked transit squares do NOT erase a right (FIDE 3.9.2 /
  * 9.2.3). The backing check uses only king/rook placement, not ray clearance. */
 static int v_cr_backing(const Position *p, const char **why) {
-  if ((p->cr & CR_WK) && (p->wKingSq != square_of(4, 0) || p->mailbox[square_of(7, 0)] != Piece::W_ROOK)) { if (why) *why = "K right unbacked (white king/rook off home)"; return 0; }
-  if ((p->cr & CR_WQ) && (p->wKingSq != square_of(4, 0) || p->mailbox[square_of(0, 0)] != Piece::W_ROOK)) { if (why) *why = "Q right unbacked (white king/rook off home)"; return 0; }
-  if ((p->cr & CR_BK) && (p->bKingSq != square_of(4, 7) || p->mailbox[square_of(7, 7)] != Piece::B_ROOK)) { if (why) *why = "k right unbacked (black king/rook off home)"; return 0; }
-  if ((p->cr & CR_BQ) && (p->bKingSq != square_of(4, 7) || p->mailbox[square_of(0, 7)] != Piece::B_ROOK)) { if (why) *why = "q right unbacked (black king/rook off home)"; return 0; }
+  if ((p->cr & CR_WK) && (p->white_king_sq != square_of(4, 0) || p->mailbox[square_of(7, 0)] != Piece::W_ROOK)) { if (why) *why = "K right unbacked (white king/rook off home)"; return 0; }
+  if ((p->cr & CR_WQ) && (p->white_king_sq != square_of(4, 0) || p->mailbox[square_of(0, 0)] != Piece::W_ROOK)) { if (why) *why = "Q right unbacked (white king/rook off home)"; return 0; }
+  if ((p->cr & CR_BK) && (p->black_king_sq != square_of(4, 7) || p->mailbox[square_of(7, 7)] != Piece::B_ROOK)) { if (why) *why = "k right unbacked (black king/rook off home)"; return 0; }
+  if ((p->cr & CR_BQ) && (p->black_king_sq != square_of(4, 7) || p->mailbox[square_of(0, 7)] != Piece::B_ROOK)) { if (why) *why = "q right unbacked (black king/rook off home)"; return 0; }
   return 1;
 }
 
@@ -324,14 +326,14 @@ int pos_validate(const Position *pos, const char **why) {
     }
   }
   for (int c = 0; c < COLOR_NB; c++)
-    if (pos->byColor[c] != (c == to_under(Color::WHITE) ? eW : eB)) { if (why) *why = "color occupancy != recompute"; return 0; }
+    if (pos->by_color[c] != (c == to_under(Color::WHITE) ? eW : eB)) { if (why) *why = "color occupancy != recompute"; return 0; }
   if (pos->occ != eOcc) { if (why) *why = "occupancy != recompute"; return 0; }
-  if (pos->byPiece[to_under(Piece::NO_PIECE)] != 0) { if (why) *why = "empty-piece bitboard must be zero"; return 0; }
+  if (pos->by_piece[to_under(Piece::NO_PIECE)] != 0) { if (why) *why = "empty-piece bitboard must be zero"; return 0; }
   for (int p = 1; p < PIECE_NB; p++) {
     u64 e = 0;
     for (int s = 0; s < SQ_NB; s++)
       if (to_under(pos->mailbox[s]) == p) e |= square_bb((Square)s);
-    if (pos->byPiece[p] != e) { if (why) *why = "piece bitboard != recompute"; return 0; }
+    if (pos->by_piece[p] != e) { if (why) *why = "piece bitboard != recompute"; return 0; }
   }
   if (!v_kings(pos, why)) return 0;
   if ((int)pos->side >= COLOR_NB) { if (why) *why = "invalid side to move"; return 0; }
@@ -347,3 +349,4 @@ int pos_validate(const Position *pos, const char **why) {
   if (!v_key(pos, why)) return 0;
   return 1;
 }
+}  // namespace qwc
