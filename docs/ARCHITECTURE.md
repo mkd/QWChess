@@ -107,25 +107,26 @@ entries as non-reusable across search cycles.
 `Position` and `StateInfo`/`MoveDelta` are **chess-level only** — they must not
 contain NNUE/SFNNv16 types or compute feature indices.
 
-```c
+```cpp
 /* One board-square change: the square and its piece before and after the move.
  * NO_PIECE in a field means that square was / is empty. */
 struct SquareEdit { Square sq; Piece before; Piece after; };
 
 /* The reversible board change of one move: the applied Move + the populated
  * edits. A null move has zero edits; a quiet move 2; an EP capture 3; an orthodox
- * castle 4 (MAX_EDIT = 4). `edits` is the full chess-level before/after that a
- * future NNUE consumer rebuilds its feature deltas from. */
-struct MoveDelta { Move move; int edit_count; SquareEdit edits[4]; };
+ * castle 4 (MAX_EDIT = 4). `edits` (a std::array since CPP20-2B) is the full
+ * chess-level before/after that a future NNUE consumer rebuilds its feature
+ * deltas from. There are no separate squares/pieces/occ/king-sq-delta members. */
+struct MoveDelta { Move move; int edit_count; std::array<SquareEdit, MAX_EDIT> edits; };
 
 /* The undo record: the board delta + the previous (irreversible) scalars + a
  * link into the repetition-history chain. `prev` points at the earlier record
- * (NULL for the first record after a setup). A record's null-ness is its
+ * (nullptr for the first record after a setup). A record's null-ness is its
  * `move == 0` / zero edits; no extra flag is stored. The caller owns the records
  * (stable addresses) and undoes in strict LIFO order. */
 struct StateInfo {
   MoveDelta  delta;
-  u64        prev_key;      u8 prev_side;  u8 prev_cr;
+  u64        prev_key;      Color prev_side;  u8 prev_cr;
   Square     prev_ep;       u16 prev_halfmove;  u16 prev_fullmove;
   struct StateInfo *prev;
 };
@@ -253,7 +254,7 @@ here; this is the reference.
   coherently in CPP20-3 (`std::cout` is a reasonable default; replacing `std::printf`
   alone proves no speed gain).
 - **Fixed-size storage.** Fixed-size *data* arrays are `std::array` (position
-  pieces/occupancy, delta squares, attack/zobrist/fen tables, per-test structs) — over C
+  pieces/occupancy, the `MoveDelta` square edits, attack/zobrist/fen tables, per-test structs) — over C
   arrays for a stable layout, value semantics, `.data()`/`.size()` and sized iteration,
   with no heap. A C-string / move buffer handed to a `char*`/`Move*` boundary takes
   `.data()`/`.size()`. Prefer **typed** initialization (`fill`, aggregate value-init) and

@@ -37,8 +37,10 @@ honors `CONFIG` (so `make test CONFIG=debug` runs the debug binaries). Separate
 - **One board representation = `Position`** (authoritative chess state). NNUE is a
   *consumer* of Position and owns its feature indices + pending updates; it never
   owns a board. **Position/StateInfo/MoveDelta must contain no NNUE-specific types.**
-  These stay plain aggregates — no user-declared constructors/destructors yet
-  (no `std::array`/`span`/`string_view`; that is CPP20-3).
+  These stay plain aggregates — no user-declared constructors/destructors. Fixed-size
+  *data* members are `std::array` (CPP20-2B). `std::span`/`std::string_view` are
+  authorized only as *borrowed interface parameters* (FEN/movegen I/O, CPP20-3A) —
+  never as stored members of these aggregates.
 - **Ownership:** only *network weights* and *immutable lookup tables* are shared
   read-only. *Finny/accumulator refresh caches are mutable, per-worker* state; reset
   them on any network change. Derived piece snapshots in a cache are allowed.

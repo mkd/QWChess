@@ -250,18 +250,26 @@ board work resumes at T005 cp2 after 2B.
 
 Landed as five deliberately-ordered, independently-verifying batches (each compiled +
 tested green before the next):
-- **(1) names + namespaces:** domain types into `namespace qwc` (`Square`/`Piece`/`Color`/
-  `PieceType`/`MoveFlag`/`Move`/`Value`/`File`/`Rank`/`DIR`/`EpTarget` + `Position`/
-  `StateInfo`/`MoveDelta`/`SearchState`/`SearchLimits`/`SearchResult`); PascalCase types,
-  snake_case functions/variables, UPPER_SNAKE constants/enumerators; the `enum`→
-  `enum class` byte/value boundary re-expressed with `to_under`/`static_cast`; tests use
-  `using namespace qwc`.
-- **(2) constants:** the numeric constants frozen as typed `constexpr` (`POS_HM_MAX`
-  u16, `POS_FM_MAX` u32, `FEN_BUF_SIZE` std::size_t, `DIR_NB` int, `MAX_PLY` int,
-  `MAX_PLY_STACK` size_t) — the raw `0xFFFF`/`0xFFFFFFFF`/`1<<30` spellings removed.
+- **(1) names + namespaces:** the existing domain types + engine aggregates into
+  `namespace qwc` (fixed-width aliases, `Value`, `Square`, `PieceType`, `Piece`,
+  `Color`, `Move`, `MoveFlag`, `SearchPly`, `HalfMoveClock`, `FullMoveNumber`, and
+  `Position`/`StateInfo`/`MoveDelta`/`SquareEdit`); PascalCase types, snake_case
+  functions/variables, UPPER_SNAKE constants/enumerators; the `enum`→`enum class`
+  byte/value boundary re-expressed with `to_under`/`static_cast`; tests use
+  `using namespace qwc`. No `SearchState`/`SearchLimits`/`SearchResult`/`EpTarget`/
+  `File`/`Rank`/`DIR` types exist or were added (`FILE_*`/`RANK_*`/`DIR_*` are `int`
+  constants) — the earlier handoff overstated this batch; it is corrected here.
+- **(2) constants:** numeric constants are typed `constexpr` (`POS_HM_MAX` is `u16`,
+  the only stored-counter bound — both FEN counters are `u16` and there is **no**
+  `POS_FM_MAX`; `FEN_BUF_SIZE`, `DIR_NB`, `MAX_PLY`, `MAX_PLY_STACK` are all `int`).
+  (The earlier handoff misstated these: a nonexistent `POS_FM_MAX` u32 and
+  `std::size_t`/`size_t` for `FEN_BUF_SIZE`/`MAX_PLY_STACK`; corrected here to match
+  the source, which was not widened to fit the report.)
 - **(3) storage:** every fixed-size *data* array → `std::array` (Position `mailbox`/
-  `by_piece`/`by_color`, `MoveDelta.squares`/`pieces`/`occ_delta`/`king_sq_delta`,
-  attack/zobrist/fen tables+scratch, the TState test struct); the C-string/move-buffer
+  `by_piece`/`by_color`; `MoveDelta.edits` is `std::array<SquareEdit, MAX_EDIT>` — the
+  record was always `move`/`edit_count`/`edits`, the earlier handoff invented
+  `squares`/`pieces`/`occ_delta`/`king_sq_delta`; attack/zobrist/fen tables+scratch,
+  the TState test struct); the C-string/move-buffer
   boundary takes `.data()`/`.size()`; byte-ops become typed (`fill`, `==`, value-init,
   value-copy) with no `sizeof T*sizeof T` or `memcmp`-for-equality; the **retained**
   `char out[3]`/`char dst[512]`/`const char**` **function parameters** stay pointers.
@@ -272,25 +280,57 @@ tested green before the next):
   `check-c`/`check-cpp20`/`test`/`test-sanitize` all work; a `check-c` C-residue gate
   (no C-only constructs / C-compiler extensions) complements `check-cpp20`.
 
-**Exit gate (met this commit):** `check-c` (no C residue) + `check-cpp20` (23 files,
-no non-C++20 constructs) green; release build 0 warnings under `-Wall -Wextra -Wshadow
--Wconversion -Wwrite-strings`; **186 PASS / 0 fail in all three configs** (release,
-debug, and sanitize — the sanitize *run* via the documented `LD_PRELOAD=libasan.so.8`
-workaround for this host's `/etc/ld.so.preload`, 0 ASan/UBSan issues); the `static_assert`
-layout contract unchanged (Position 248/8, StateInfo 48/8, MoveDelta 20/4, SquareEdit
-3/1); **0 raw C array declarations in `src/`** (all data arrays are `std::array`); **0 new
-`<cstdint>` includes**. The `QWC_FORCE_PORTABLE_BITS` portable-bits path is tested.
+**Exit gate (met this commit):** `check-c` + `check-cpp20` (23 files, no non-C++20
+constructs) green; release build 0 warnings under `-Wall -Wextra -Wshadow -Wconversion
+-Wwrite-strings`; **186 PASS / 0 fail** in release and debug. For sanitize: the
+instrumented build compiles and all 15 suites **pass via the documented
+`LD_PRELOAD=libasan.so.8` workaround** (0 ASan/UBSan/leak issues), but the **ordinary
+`make test-sanitize` target fails on this host** — `/etc/ld.so.preload` →
+`libenable-3fg-drag.so` (a VM tool) breaks ASan's loader order for *every* program.
+Those are separate outcomes: the workaround run passes; the ordinary target does not.
+The `static_assert` layout contract unchanged (Position 248/8, StateInfo 48/8,
+MoveDelta 20/4, SquareEdit 3/1); 0 raw C array declarations in `src/`; 0 new
+`<cstdint>` includes. The `QWC_FORCE_PORTABLE_BITS` portable-bits path is tested.
 
-### CPP20-3 — interfaces/ownership + platform services + output + documentation
-Interface/ownership cleanup: references/pointers for output parameters; `std::span`/
-`std::string_view`/`std::string` and constructors/`operator==`/`constexpr` only where
-they genuinely simplify an interface. The clock **contract design review** (recorded in
-2A; steady_clock epoch is not guaranteed nonnegative). `std::numeric_limits` is a proper
-C++ facility (keep where appropriate); replace `INT64_MAX`-style `<climits>` macros only
-when a clearer typed expression helps. Coherent human-facing output cleanup + the
-remaining per-module documentation (ARCHITECTURE.md policy). **Validate** the GCC and
-Clang builds on x86-64 (both green incl. `check-cpp20`); report AArch64 (incl. Apple
-Silicon) and RV64 support **separately** — do not claim untested architecture support.
+### CPP20-3A — bounded FEN + move-buffer interfaces (this checkpoint)
+- **Factual / build-policy corrections** (folded in; no separate doc-only stop): the
+  2B handoff's misreported `MoveDelta` members, nonexistent types
+  (`SearchState`/`SearchLimits`/`SearchResult`/`EpTarget`/`File`/`Rank`/`DIR`) and
+  counter-constant types corrected to match the source; `AGENTS.md`'s stale "no
+  `std::array`" rule fixed (`std::array` is implemented; `span`/`string_view`
+  authorized as *borrowed interface parameters*); `check-c` reduced to a documented
+  **legacy alias for `check-cpp20`** (the 2B token blacklist removed — it did not
+  establish C++ correctness/portability and conflicted with the policy permitting
+  justified, *guarded* platform code); sanitizer results reported honestly (the
+  documented workaround run and the ordinary target are separate outcomes).
+- **Bounded interfaces** in `qwc` (direct includes for the standard facilities used):
+  `[[nodiscard]] bool fen_load(Position&, std::string_view, std::string_view* = nullptr)`,
+  `[[nodiscard]] bool fen_emit(const Position&, std::span<char>)`, and
+  `[[nodiscard]] bool movegen_pseudo_noncastling(const Position&, std::span<Move>, std::size_t&)`.
+  The existing pointer-based overloads remain as small, documented **adapters** that
+  validate their legacy null/signed cases *before* constructing a view/span and then
+  call the same primary (no second parser/emitter/generator). The borrowed views
+  allocate nothing and are never retained in Position/StateInfo/a global/a callback.
+  The FEN parser honors its exact view size (never `strlen`/an assumed terminator;
+  rejects empty input and any embedded or terminal NUL); the move buffer checks
+  capacity before every append.
+- **Focused regressions:** string_view/span FEN + movegen coverage (non-terminated
+  valid input; a valid slice inside surrounding junk; empty/default views; embedded
+  and included terminal NUL; truncation/trailing junk; preserved Position/history on
+  failure; exact text-length+1 and one-byte-short emission; empty output; canaries and
+  unchanged suffix; count reset + canaries; exact/insufficient capacity; empty spans
+  incl. a zero-candidate fixture; diagnostics cleared on success / static-backed on
+  failure / optional omission), the missing aggregate/extent `static_assert`s, and a
+  `test-portable-bits` that builds **and** runs both `sq_bb_test` and `attacks_test`.
+
+### CPP20-3B — clock contract, output, remaining interface/documentation review (next)
+The clock **contract design review** (steady_clock epoch is not guaranteed
+nonnegative); coherent human-facing output cleanup; `std::numeric_limits` kept where
+appropriate (replace `INT64_MAX`-style `<climits>` macros only when a clearer typed
+expression helps); the remaining per-module documentation (ARCHITECTURE.md policy).
+**Validate** the GCC and Clang builds on x86-64 (both green incl. `check-cpp20`);
+report AArch64 (incl. Apple Silicon) and RV64 support **separately** — do not claim
+untested architecture support.
 
 ### CPP20-4 — final audit + build profiles + same-ISA comparison + C++26 readiness
 Final migration/documentation audit (no C-only constructs, no implicit narrowing, a

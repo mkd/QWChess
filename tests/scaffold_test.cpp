@@ -94,6 +94,20 @@ static_assert(std::is_trivially_copyable_v<MoveDelta> && std::is_standard_layout
 static_assert(std::is_trivially_copyable_v<SquareEdit> && std::is_standard_layout_v<SquareEdit>,
               "SquareEdit is trivially copyable and standard-layout");
 
+/* ---- Compile-time: the fixed-size storage is std::array with the exact element
+ * types + extents (the CPP20-2B storage conversion, confirmed here in CPP20-3A).
+ * These pin the aggregate's data members to the intended arrays, not C arrays. ---- */
+static_assert(std::is_same_v<decltype(Position::mailbox), std::array<Piece, SQ_NB>>,
+              "Position::mailbox is std::array<Piece, SQ_NB>");
+static_assert(std::is_same_v<decltype(Position::by_piece), std::array<u64, PIECE_NB>>,
+              "Position::by_piece is std::array<u64, PIECE_NB>");
+static_assert(std::is_same_v<decltype(Position::by_color), std::array<u64, COLOR_NB>>,
+              "Position::by_color is std::array<u64, COLOR_NB>");
+static_assert(std::is_same_v<decltype(MoveDelta::edits), std::array<SquareEdit, MAX_EDIT>>,
+              "MoveDelta::edits is std::array<SquareEdit, MAX_EDIT>");
+static_assert(SQ_NB == 64 && PIECE_NB == 16 && COLOR_NB == 2 && MAX_EDIT == 4,
+              "storage extents: 64 squares / 16 pieces / 2 colors / 4 edits");
+
 /* ---- Compile-time: the aggregate size/alignment baseline, pinned to the ABI
  * where it was measured (x86-64: 248/8, 48/8, 20/4, 3/1). A different ABI keeps
  * the copyable/layout guarantees above but is NOT pinned to these sizes. ---- */

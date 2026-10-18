@@ -8,10 +8,16 @@
  * Uses the existing attack tables (knight/king static masks; sliders over the
  * combined occupancy) and the Position's by_piece/by_color/occ caches. No heap,
  * no Position copy, no make/unmake, no rebuild, no king-safety query.
+ *
+ * There is one generation implementation (the span primary below). The pointer
+ * adapter delegates to it. The private append helpers take the raw buffer +
+ * capacity and guard every write against the capacity, so a zero-size (empty)
+ * span can never be written through.
  */
 #include "movegen/movegen.hpp"
 
 #include <cstddef>
+#include <span>
 
 #include "core/types.hpp"
 #include "core/square.hpp"
@@ -21,7 +27,8 @@
 namespace qwc {
 
 /* Append one move to `out` if there is room. Returns 0 on overflow (the caller
- * treats that as a hard stop) and never writes outside `capacity`. */
+ * treats that as a hard stop) and never writes outside `capacity` (so it is safe
+ * even when `out` is null and `capacity` is zero). */
 static int mg_append(Move *out, std::size_t capacity, std::size_t *n, Move m) {
   if (*n >= capacity)
     return 0;
@@ -107,45 +114,40 @@ static int mg_gen_pawn(const Position *pos, Square from, Move *out, std::size_t 
   return 1;
 }
 
-int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capacity,
-                               std::size_t *count) {
-  if (pos == nullptr || out == nullptr) {
-    if (count)
-      *count = 0;
-    return 0;
-  }
+/* ---- primary: bounded (span) generation ---- */
 
+bool movegen_pseudo_noncastling(const Position& pos, std::span<Move> output,
+                                std::size_t& count) {
+  count = 0;   /* zero on entry; written to the full count only on success */
   std::size_t n = 0;
-  const Color   side    = pos->side;
-  const u64     friendly = pos->by_color[to_under(side)];
-  const u64     enemy    = pos->by_color[1 - to_under(side)];
+  Move *out = output.data();        /* may be null when output.size() is 0 */
+  std::size_t cap = output.size();
+
+  const Color   side    = pos.side;
+  const u64     friendly = pos.by_color[to_under(side)];
+  const u64     enemy    = pos.by_color[1 - to_under(side)];
   const u64     enemy_king_bb =
-      square_bb((side == Color::WHITE) ? pos->black_king_sq : pos->white_king_sq);
+      square_bb((side == Color::WHITE) ? pos.black_king_sq : pos.white_king_sq);
   const int  dir     = (side == Color::WHITE) ? 8  : -8;
   const int  start_r = (side == Color::WHITE) ? 1  : 6;   /* 2nd / 7th rank */
   const int  promo_r = (side == Color::WHITE) ? 7  : 0;   /* 8th / 1st rank */
-  const u64  side_pawns = pos->by_piece[(side == Color::WHITE) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN)];
+  const u64  side_pawns = pos.by_piece[(side == Color::WHITE) ? to_under(Piece::W_PAWN) : to_under(Piece::B_PAWN)];
 
   /* Ordinary pieces (knight/bishop/rook/queen/king) + pawns, in a fixed,
    * deterministic square order. */
   for (u64 bits = friendly; bits; bits = pop_lsb(bits)) {
     const Square    from = (Square)lsb_index(bits);
-    const PieceType type = piece_type(pos->mailbox[from]);
+    const PieceType type = piece_type(pos.mailbox[from]);
     if (type == PieceType::PAWN) {
-      if (!mg_gen_pawn(pos, from, out, capacity, &n,
-                       dir, start_r, promo_r, enemy, enemy_king_bb)) {
-        if (count) *count = 0;
-        return 0;
-      }
+      if (!mg_gen_pawn(&pos, from, out, cap, &n,
+                       dir, start_r, promo_r, enemy, enemy_king_bb))
+        return false;   /* overflow: `count` stays 0 */
     } else {
-      const u64 dest = mg_dest_mask(pos, from, type, friendly, enemy_king_bb);
-      for (u64 d = dest; d; d = pop_lsb(d)) {
-        if (!mg_append(out, capacity, &n,
-                       make_move(from, (Square)lsb_index(d), 0u, 0u))) {
-          if (count) *count = 0;
-          return 0;
-        }
-      }
+      const u64 dest = mg_dest_mask(&pos, from, type, friendly, enemy_king_bb);
+      for (u64 d = dest; d; d = pop_lsb(d))
+        if (!mg_append(out, cap, &n,
+                       make_move(from, (Square)lsb_index(d), 0u, 0u)))
+          return false;   /* overflow */
     }
   }
 
@@ -154,16 +156,16 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
    * are checked inline; king safety is deliberately NOT (pos_ep_is_legal /
    * pos_canon_ep_file / pos_ep_capture_is_safe are not consulted). Up to two
    * captors yield two distinct moves; a pinned captor is still a candidate. */
-  if (pos->ep_sq != NO_SQUARE) {
-    const int ef = file_of(pos->ep_sq);
-    const int er = rank_of(pos->ep_sq);
+  if (pos.ep_sq != NO_SQUARE) {
+    const int ef = file_of(pos.ep_sq);
+    const int er = rank_of(pos.ep_sq);
     const int captor_r = er + (side == Color::WHITE ? -1 : 1);   /* one rank behind */
     if (captor_r >= 0 && captor_r < RANK_NB) {
       const u64  cap_bb   = square_bb(square_of(ef, captor_r));  /* the taken pawn */
-      const u64  landing  = square_bb(pos->ep_sq);
+      const u64  landing  = square_bb(pos.ep_sq);
       const int  enemy_pawn = (side == Color::WHITE) ? to_under(Piece::B_PAWN) : to_under(Piece::W_PAWN);
-      const int  enemy_present = (pos->by_piece[enemy_pawn] & cap_bb) != 0;
-      const int  landing_empty = (pos->occ & landing) == 0;
+      const int  enemy_present = (pos.by_piece[enemy_pawn] & cap_bb) != 0;
+      const int  landing_empty = (pos.occ & landing) == 0;
       if (enemy_present && landing_empty) {
         for (int sfx = -1; sfx <= 1; sfx += 2) {
           const int cf = ef + sfx;
@@ -172,17 +174,34 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
           const Square captor = square_of(cf, captor_r);
           if ((side_pawns & square_bb(captor)) == 0)
             continue;                              /* needs an adjacent friendly captor */
-          if (!mg_append(out, capacity, &n, make_move(captor, pos->ep_sq, (u32)MoveFlag::MV_EP, 0u))) {
-            if (count) *count = 0;
-            return 0;
-          }
+          if (!mg_append(out, cap, &n, make_move(captor, pos.ep_sq, (u32)MoveFlag::MV_EP, 0u)))
+            return false;                          /* overflow */
         }
       }
     }
   }
 
-  if (count)
-    *count = n;
-  return 1;
+  count = n;   /* success: the complete move count */
+  return true;
 }
+
+/* ---- adapter: legacy pointer form ----
+ *
+ * Validates its legacy null-pointer cases (a null `pos` or `out` fails, even with
+ * zero capacity) before constructing the span, then delegates to the primary. The
+ * `count` pointer remains optional. */
+int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capacity,
+                               std::size_t *count) {
+  if (pos == nullptr || out == nullptr) {
+    if (count)
+      *count = 0;
+    return 0;
+  }
+  std::size_t n = 0;
+  bool ok = movegen_pseudo_noncastling(*pos, std::span<Move>(out, capacity), n);
+  if (count)
+    *count = n;   /* the primary already normalized n to 0 on failure */
+  return ok ? 1 : 0;
+}
+
 }  // namespace qwc

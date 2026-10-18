@@ -32,6 +32,7 @@
 #include <cstddef>
 #include <array>
 #include <algorithm>
+#include <span>
 
 using namespace qwc;
 
@@ -573,6 +574,92 @@ static int t_apply_unapply() {
   return fail;
 }
 
+/* ---- the bounded (std::span<Move>) primary interface -----------------------
+ * Verifies the primary against the same independent expectations as the pointer
+ * form (startpos = 20, and two special-move fixtures), plus the span-specific
+ * contract: exact/insufficient capacity, empty spans (never written through),
+ * count reset on failure, and overflow canaries. */
+static int t_span_interface() {
+  int fail = 0;
+
+  /* (a) the primary matches the independent expectations with an ample buffer. */
+  {
+    qwc_begin("mg.span.startpos");
+    Position pos; pos_set_startpos(&pos);
+    Move out[MG_CAP]; std::size_t n = 12345;   /* garbage pre-count */
+    QWC_TRUE(movegen_pseudo_noncastling(pos, std::span<Move>(out, MG_CAP), n), "span: startpos succeeds");
+    static const char *exp =
+      "a2a3 b2b3 c2c3 d2d3 e2e3 f2f3 g2g3 h2h3 "
+      "a2a4 b2b4 c2c4 d2d4 e2e4 f2f4 g2g4 h2h4 "
+      "b1a3 b1c3 g1f3 g1h3";
+    fail |= cmp_set(out, n, exp, "");   /* cmp_set ends this group */
+  }
+  for (int idx : { 5, 10 }) {   /* promotion, pinned_ep (special moves) */
+    char tag[64]; std::snprintf(tag, sizeof tag, "mg.span.fx%d", idx);
+    qwc_begin(tag);
+    Position pos; const char *why = nullptr;
+    QWC_TRUE(fen_load(&pos, fixtures[idx].fen, &why) == 1, "span: fixture loads");
+    Move out[MG_CAP]; std::size_t n = 12345;
+    QWC_TRUE(movegen_pseudo_noncastling(pos, std::span<Move>(out, MG_CAP), n), "span: fixture succeeds");
+    fail |= cmp_set(out, n, fixtures[idx].moves, fixtures[idx].ep_moves);
+  }
+
+  /* (b) exact / insufficient capacity through the span, with count reset. */
+  qwc_begin("mg.span.capacity");
+  {
+    Position pos; pos_set_startpos(&pos);   /* 20 moves */
+    Move buf[MG_CAP];
+    std::size_t n = 12345;
+    QWC_TRUE(movegen_pseudo_noncastling(pos, std::span<Move>(buf, 20), n), "span: exact cap 20 succeeds");
+    QWC_EQ_I((int)n, 20, "span: exact cap writes 20");
+    n = 12345;
+    QWC_TRUE(!movegen_pseudo_noncastling(pos, std::span<Move>(buf, 19), n), "span: cap 19 overflows");
+    QWC_EQ_I((int)n, 0, "span: count reset to 0 on overflow");
+  }
+  fail |= qwc_end();
+
+  /* (c) empty spans are never written through and reset the count for a
+   * non-empty position (a size-0 span over a real buffer, and a default-
+   * constructed null-data span). A zero-candidate position would succeed with
+   * count 0 per the contract, but no such fixture exists for this layer (every
+   * standard fixture has >= 5 candidates), so the safety property under test is
+   * that a zero-size span performs no write. */
+  qwc_begin("mg.span.empty");
+  {
+    Position pos; pos_set_startpos(&pos);   /* 20 moves (non-empty) */
+    Move buf[MG_CAP];
+    for (int i = 0; i < MG_CAP; i++) buf[i] = (Move)0xA5A5A5A5u;   /* canary */
+    std::size_t n = 12345;
+    QWC_TRUE(!movegen_pseudo_noncastling(pos, std::span<Move>(buf, 0), n), "span: size-0 span (non-empty) fails");
+    QWC_EQ_I((int)n, 0, "span: size-0 count reset to 0");
+    int canary = 1;
+    for (int i = 0; i < MG_CAP; i++) if (buf[i] != (Move)0xA5A5A5A5u) canary = 0;
+    QWC_TRUE(canary, "span: size-0 span writes nothing (canary untouched)");
+    n = 12345;
+    QWC_TRUE(!movegen_pseudo_noncastling(pos, std::span<Move>{}, n), "span: default-constructed span fails");
+    QWC_EQ_I((int)n, 0, "span: default-constructed count reset to 0");
+  }
+  fail |= qwc_end();
+
+  /* (d) overflow canary: a 19-capacity span leaves every index >= 19 untouched. */
+  qwc_begin("mg.span.canary");
+  {
+    Position pos; pos_set_startpos(&pos);
+    Move cbuf[MG_CAP];
+    for (int i = 0; i < MG_CAP; i++) cbuf[i] = (Move)0xA5A5A5A5u;
+    std::size_t n = 12345;
+    bool ok = movegen_pseudo_noncastling(pos, std::span<Move>(cbuf, 19), n);   /* overflows */
+    QWC_TRUE(!ok, "span: 19-cap overflow fails");
+    QWC_EQ_I((int)n, 0, "span: overflow count reset to 0");
+    int beyond_ok = 1;
+    for (int i = 19; i < MG_CAP; i++) if (cbuf[i] != (Move)0xA5A5A5A5u) beyond_ok = 0;
+    QWC_TRUE(beyond_ok, "span: no write beyond the 19-capacity span (canary untouched)");
+  }
+  fail |= qwc_end();
+
+  return fail;
+}
+
 int main() {
   int fail = 0;
   fail |= t_fixtures();
@@ -583,6 +670,7 @@ int main() {
   fail |= t_determinism();
   fail |= t_counters();
   fail |= t_apply_unapply();
+  fail |= t_span_interface();
   std::printf("\nmovegen pseudo-legal: %s\n", fail ? "FAIL" : "all groups PASS");
   return fail ? 1 : 0;
 }

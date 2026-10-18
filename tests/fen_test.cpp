@@ -26,6 +26,8 @@
 #include <cstddef>
 #include <array>
 #include <algorithm>
+#include <span>
+#include <string_view>
 
 using namespace qwc;
 
@@ -40,6 +42,11 @@ static int pos_equal(const Position *a, const Position *b) {
   if (a->white_king_sq != b->white_king_sq || a->black_king_sq != b->black_king_sq) return 0;
   if (a->key != b->key) return 0;
   return 1;
+}
+
+/* The canonical valid FEN shared by the view/diagnostics tests. */
+static const char *good_fen() {
+  return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 }
 
 /* Build the top-bottom color reflection of `src` into `dst`: every piece at
@@ -313,11 +320,225 @@ static int t_emit_bounds() {
   return qwc_end();
 }
 
+/* ---- the bounded (std::string_view) load contract -------------------------
+ * The parser is sized by the view, not by a NUL terminator. These cases exercise
+ * that boundary: a valid FEN that is non-terminated / a slice of a larger buffer
+ * must load; empty, NUL-bearing, truncated and trailing-junk views must be
+ * rejected, leaving the caller's Position (and its history head) untouched. */
+static int t_view_boundaries() {
+  qwc_begin("fen.view.load");
+  Position sentinel; pos_set_startpos(&sentinel);
+  const char *fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  const std::size_t len = std::strlen(fen);
+  Position clean; const char *why = nullptr;
+  QWC_TRUE(fen_load(&clean, fen, &why), "view: clean reference load");
+
+  /* (a) a valid FEN whose buffer is NOT NUL-terminated at the view boundary
+   * (junk, not a NUL, immediately after the FEN) loads from the view alone. */
+  {
+    char buf[128];
+    std::memcpy(buf, fen, len);
+    std::memcpy(buf + len, "JUNKJUNK", 8);   /* no NUL at the view's end */
+    Position p = sentinel;
+    std::string_view err;
+    QWC_TRUE(fen_load(p, std::string_view(buf, len), &err), "view: non-terminated valid FEN loads");
+    QWC_TRUE(err.empty(), "view: success leaves error empty");
+    QWC_TRUE(pos_equal(&p, &clean), "view: identical to a clean load");
+  }
+
+  /* (b) a valid FEN that is a slice of a larger buffer (junk before and after)
+   * loads from the slice. */
+  {
+    char buf[160];
+    const std::size_t pre = 10;
+    std::memcpy(buf, "JUNKPREFIX", pre);
+    std::memcpy(buf + pre, fen, len);
+    std::memcpy(buf + pre + len, "JUNKSUFFIX", 10);
+    Position p = sentinel;
+    std::string_view err;
+    QWC_TRUE(fen_load(p, std::string_view(buf + pre, len), &err), "view: slice inside surrounding junk loads");
+    QWC_TRUE(err.empty(), "view: success leaves error empty");
+  }
+
+  /* (c) empty and default-constructed views are rejected. */
+  for (int k = 0; k < 2; k++) {
+    Position p = sentinel;
+    std::string_view err;
+    bool ok = k == 0 ? fen_load(p, std::string_view{}, &err)
+                     : fen_load(p, std::string_view(), &err);
+    QWC_TRUE(!ok, "view: empty / default view rejected");
+    QWC_TRUE(!err.empty(), "view: rejection has a reason");
+    QWC_TRUE(pos_equal(&p, &sentinel) && p.history == sentinel.history, "view: Position+history preserved");
+  }
+
+  /* (d) a NUL byte inside the supplied range is input data and is rejected; the
+   * same FEN without the embedded NUL still loads. */
+  {
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "%s", fen);   /* valid, NUL-terminated */
+    buf[len / 2] = '\0';                          /* corrupt with an embedded NUL */
+    Position p = sentinel;
+    std::string_view err;
+    QWC_TRUE(!fen_load(p, std::string_view(buf, len), &err), "view: embedded NUL rejected");
+    QWC_TRUE(!err.empty(), "view: embedded NUL has a reason");
+    QWC_TRUE(pos_equal(&p, &sentinel) && p.history == sentinel.history, "view: Position+history preserved");
+    p = sentinel; err = std::string_view{};
+    QWC_TRUE(fen_load(p, std::string_view(good_fen()), &err), "view: the un-corrupted FEN loads");
+  }
+
+  /* (e) a view that accidentally *includes* the terminating NUL is rejected; the
+   * identical view excluding it is the valid FEN. */
+  {
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "%s", fen);
+    Position p = sentinel;
+    std::string_view err;
+    QWC_TRUE(!fen_load(p, std::string_view(buf, len + 1), &err), "view: included terminal NUL rejected");
+    QWC_TRUE(!err.empty(), "view: terminal NUL has a reason");
+    p = sentinel; err = std::string_view{};
+    QWC_TRUE(fen_load(p, std::string_view(buf, len), &err), "view: terminator-excluding view loads");
+  }
+
+  /* (f) truncation (a view that ends mid-FEN) and trailing junk are rejected. */
+  {
+    Position p = sentinel;
+    std::string_view err;
+    QWC_TRUE(!fen_load(p, std::string_view(fen, len - 1), &err), "view: truncated FEN rejected");
+    QWC_TRUE(!err.empty(), "view: truncated FEN has a reason");
+    QWC_TRUE(pos_equal(&p, &sentinel) && p.history == sentinel.history, "view: Position+history preserved");
+    char buf[96];
+    std::memcpy(buf, fen, len);
+    std::memcpy(buf + len, "junk", 4);
+    p = sentinel; err = std::string_view{};
+    QWC_TRUE(!fen_load(p, std::string_view(buf, len + 4), &err), "view: trailing junk rejected");
+    QWC_TRUE(!err.empty(), "view: trailing junk has a reason");
+  }
+
+  return qwc_end();
+}
+
+/* ---- the bounded (std::span<char>) emission contract ----------------------- */
+static int t_emit_span() {
+  qwc_begin("fen.emit.span");
+  Position p; const char *why = nullptr;
+  const char *start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  QWC_TRUE(fen_load(&p, start, &why), "emit.span: load");
+  const std::size_t len = std::strlen(start);   /* rendered length, no terminator */
+
+  /* exact text-length + 1 capacity succeeds (room for the terminator). */
+  {
+    std::array<char, 128> out{};
+    QWC_TRUE(fen_emit(p, std::span<char>(out.data(), len + 1)), "span: exact+1 succeeds");
+    QWC_TRUE(std::memcmp(out.data(), start, len) == 0 && out[len] == '\0', "span: correct text + terminator");
+  }
+  /* one byte short (no room for the NUL) fails and leaves the buffer untouched. */
+  {
+    std::array<char, 128> out{};
+    for (auto &c : out) c = (char)0x5A;   /* poison */
+    QWC_TRUE(!fen_emit(p, std::span<char>(out.data(), len)), "span: one byte short fails");
+    int untouched = 1;
+    for (auto c : out) if (c != (char)0x5A) untouched = 0;
+    QWC_TRUE(untouched, "span: buffer unchanged when one byte short");
+  }
+  /* empty output (and a default-constructed span) fails. */
+  {
+    char b;
+    QWC_TRUE(!fen_emit(p, std::span<char>(&b, 0)), "span: empty output fails");
+    QWC_TRUE(!fen_emit(p, std::span<char>{}), "span: default-constructed span fails");
+  }
+  /* an invalid Position fails (a pos_reset board has no kings). */
+  {
+    Position bad; pos_reset(&bad);
+    char b[8];
+    QWC_TRUE(!fen_emit(bad, std::span<char>(b, sizeof b)), "span: invalid Position fails");
+  }
+  /* canary + unchanged suffix: emit into a larger buffer; the unused suffix stays. */
+  {
+    std::array<char, 128> out{};
+    for (auto &c : out) c = (char)0x77;   /* poison the whole buffer */
+    QWC_TRUE(fen_emit(p, std::span<char>(out.data(), out.size())), "span: into a larger buffer succeeds");
+    QWC_TRUE(std::memcmp(out.data(), start, len) == 0 && out[len] == '\0', "span: text + terminator written");
+    int suffix_ok = 1;
+    for (std::size_t i = len + 1; i < out.size(); i++) if (out[i] != (char)0x77) suffix_ok = 0;
+    QWC_TRUE(suffix_ok, "span: unused suffix left unchanged");
+  }
+  /* the legacy adapter keeps its null / nonpositive handling. */
+  {
+    char b[8];
+    QWC_EQ_I(fen_emit(&p, nullptr, FEN_BUF_SIZE), 0, "adapter: null out -> 0");
+    QWC_EQ_I(fen_emit(&p, b, 0), 0, "adapter: zero size -> 0");
+    QWC_EQ_I(fen_emit(&p, b, -1), 0, "adapter: negative size -> 0");
+    QWC_EQ_I(fen_emit(nullptr, b, FEN_BUF_SIZE), 0, "adapter: null pos -> 0");
+  }
+  return qwc_end();
+}
+
+/* ---- diagnostics: cleared on success / static-backed on failure / optional -- */
+static int t_diagnostics() {
+  qwc_begin("fen.diagnostics");
+  Position sentinel; pos_set_startpos(&sentinel);
+  const char *bad = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR x KQkq - 0 1";   /* bad side */
+
+  /* a pre-set error view is cleared on success. */
+  {
+    Position p;
+    std::string_view err = "stale-diagnostics-should-be-cleared";
+    QWC_TRUE(fen_load(p, std::string_view(good_fen()), &err), "diag: valid loads");
+    QWC_TRUE(err.empty(), "diag: error cleared on success");
+  }
+  /* a failure supplies a nonempty, static-backed reason; the pointer is optional. */
+  {
+    Position p;
+    std::string_view err;
+    QWC_TRUE(!fen_load(p, std::string_view(bad), &err), "diag: invalid rejected");
+    QWC_TRUE(!err.empty(), "diag: failure has a nonempty reason");
+    QWC_TRUE(err.data()[0] != '\0', "diag: reason is static-backed (survives the call)");
+    Position p2 = sentinel;
+    QWC_TRUE(!fen_load(p2, std::string_view(bad)), "diag: error pointer is optional");
+    QWC_TRUE(pos_equal(&p2, &sentinel) && p2.history == sentinel.history, "diag: Position+history preserved");
+  }
+  /* the legacy adapter keeps its null-`why` handling (does not crash). */
+  {
+    Position p = sentinel;
+    QWC_EQ_I(fen_load(&p, bad, nullptr), 0, "adapter: null why -> 0 (no crash)");
+    QWC_EQ_I(fen_load(&p, good_fen(), nullptr), 1, "adapter: null why -> 1 on success");
+  }
+  return qwc_end();
+}
+
+/* ---- a round-trip through BOTH bounded interfaces (string_view load + span
+ * emit) must reproduce the canonical FEN byte-for-byte and reload identically.
+ * (The pointer adapters in t_roundtrip exercise the same primaries; this pins the
+ * two bounded forms end-to-end.) */
+static int t_view_roundtrip() {
+  qwc_begin("fen.view.roundtrip");
+  const char *fen = good_fen();   /* canonical: normalized castling order + runs */
+  const std::size_t len = std::strlen(fen);
+  char in[128];
+  std::memcpy(in, fen, len + 1);   /* a NUL-terminated source buffer */
+  Position p;
+  std::string_view err;
+  QWC_TRUE(fen_load(p, std::string_view(in, len), &err), "rt: string_view load (terminator excluded)");
+  QWC_TRUE(err.empty(), "rt: success leaves error empty");
+  char out[128];
+  for (auto &c : out) c = (char)0x5A;   /* poison, to confirm a full overwrite */
+  QWC_TRUE(fen_emit(p, std::span<char>(out, sizeof out)), "rt: span emit");
+  QWC_TRUE(std::memcmp(out, fen, len) == 0 && out[len] == '\0', "rt: emitted text == input + NUL");
+  Position p2;
+  QWC_TRUE(fen_load(p2, std::string_view(out, len), &err), "rt: reload the emitted text");
+  QWC_TRUE(pos_equal(&p, &p2), "rt: reloaded Position identical");
+  return qwc_end();
+}
+
 int main() {
   int fail = 0;
   fail |= t_roundtrip();
   fail |= t_reject();
   fail |= t_ep();
   fail |= t_emit_bounds();
+  fail |= t_view_boundaries();
+  fail |= t_view_roundtrip();
+  fail |= t_emit_span();
+  fail |= t_diagnostics();
   return fail ? 1 : 0;
 }
