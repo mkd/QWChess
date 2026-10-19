@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <array>
 #include <algorithm>
+#include <chrono>
 #include "core/types.hpp"
 #include "platform/clock.hpp"
 #include "position/position.hpp"   // Position; transitively state.hpp (StateInfo/MoveDelta/SquareEdit)
@@ -139,26 +140,38 @@ static int test_move_roundtrip() {
   return 1;
 }
 
-/* Runtime: the clock is monotonic (nondecreasing). ~1e5 vDSO reads, a few ms. */
-static int test_clock_monotonic() {
-  i64 prev = clock_now_ns();
-  if (prev < 0)
-    return 0; /* clock error */
+/* Compile-time: the clock API contract (pinned in platform/clock.hpp). The return
+ * type is the steady time_point; the call is noexcept; steady_clock is steady. */
+static_assert(std::is_same_v<decltype(clock_now()), SteadyClock::time_point>,
+              "clock_now() returns a steady_clock time_point");
+static_assert(noexcept(clock_now()), "clock_now() is noexcept");
+static_assert(SteadyClock::is_steady, "steady_clock is steady (monotonic) by contract");
+
+/* Runtime: the clock is monotonic -- a bounded sequence of actual readings never
+ * decreases, and an elapsed duration is nonnegative. Equal consecutive readings are
+ * valid (no measurable-progress requirement); no sleep, and no wall-clock timestamp
+ * or sign is asserted. ~1e5 vDSO reads, a few ms. */
+static int test_clock() {
+  TimePoint prev = clock_now();
   for (int i = 0; i < 100000; i++) {
-    i64 t = clock_now_ns();
-    if (t < 0 || t < prev)
-      return 0; /* regression */
+    TimePoint t = clock_now();
+    if (t < prev)
+      return 0;   /* monotonicity: a later reading is never earlier */
     prev = t;
   }
-  i64 us = clock_now_us();
-  return us >= 0;
+  /* elapsed time is nonnegative: a second read is never before the first. */
+  TimePoint a = clock_now();
+  TimePoint b = clock_now();   /* b is read after a */
+  if (b < a)
+    return 0;
+  return 1;
 }
 
 int main() {
   int ok = 1;
   ok &= test_move_roundtrip();
-  ok &= test_clock_monotonic();
-  std::printf("scaffold test: %s (move_roundtrip, clock_monotonic)\n",
+  ok &= test_clock();
+  std::printf("scaffold test: %s (move_roundtrip, clock)\n",
          ok ? "PASS" : "FAIL");
   return ok ? 0 : 1;
 }

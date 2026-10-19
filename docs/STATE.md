@@ -1,61 +1,60 @@
 # QwenChess — current state
 
-**Milestone:** `CPP20-3A` (done this commit) — bounded FEN + pseudo-legal move-buffer
-interfaces, plus the CPP20-2B factual/build-policy corrections folded in.
-(There is no T005/T009/T012/T013/T016 work in this repo; `PLAN.md` uses `T###` task
-IDs and the `CPP20-*` migration checkpoints.)
+**Milestone:** `CPP20-3B` (done this commit) — the clock now exposes native
+`std::chrono::steady_clock` **time points** (no invented nonnegative epoch, no
+negative-error scalar); the scaffold entry point uses coherent C++ stream output.
+Phase 3 of the C++20 workstream is **complete** after this; there is no 3C.
 
-**Last verified commit:** `d68b925` (CPP20-2B) is the parent; this commit is CPP20-3A.
+**Last verified commit:** `dcfa2eb` (CPP20-3A) is the parent; this commit is CPP20-3B.
 
 ## What this checkpoint did
-- **New bounded `qwc` interfaces** (direct `<span>`/`<string_view>` includes; borrowed
-  views, never stored): `fen_load(Position&, std::string_view, std::string_view* =
-  nullptr)`, `fen_emit(const Position&, std::span<char>)`,
-  `movegen_pseudo_noncastling(const Position&, std::span<Move>, std::size_t&)`. The
-  existing pointer overloads remain as small **adapters** that validate their legacy
-  null/signed cases and delegate to the same primary — there is exactly one parser,
-  one emitter, one generator. The FEN parser is sized by the view (no `strlen`/assumed
-  terminator; rejects empty + any NUL in the range); the move buffer checks capacity
-  before every append.
-- **Factual/build-policy corrections (CPP20-2B, folded in, no separate stop):** the
-  2B handoff's misreported `MoveDelta` members / nonexistent types (`SearchState`/
-  `SearchLimits`/`SearchResult`/`EpTarget`/`File`/`Rank`/`DIR`) / counter-constant
-  types corrected to match the source; `AGENTS.md`'s stale "no `std::array`" rule
-  fixed; `make check-c` reduced to a documented **legacy alias for `check-cpp20`**
-  (the 2B token blacklist removed — it did not establish C++ correctness/portability);
-  `make test-portable-bits` now builds **and** runs both `sq_bb_test` and
-  `attacks_test`.
-- **Focused regressions:** string_view/span FEN + movegen coverage (non-terminated
-  valid input, a slice in surrounding junk, empty/default views, embedded + terminal
-  NUL, truncation, trailing junk, preserved Position+history on failure, exact+1 /
-  one-byte-short / empty emission, canaries + unchanged suffix, count reset, empty
-  spans, diagnostics), the missing aggregate/extent `static_assert`s, and the
-  two-suite portable-bits gate.
+- **Clock contract** (`platform/clock.{hpp,cpp}`): `using SteadyClock =
+  std::chrono::steady_clock; using TimePoint = SteadyClock::time_point;
+  [[nodiscard]] TimePoint clock_now() noexcept;` implemented as a direct return of
+  `SteadyClock::now()`, with `static_assert(SteadyClock::is_steady)`. The old
+  `clock_now_ns()/clock_now_us()` (which treated a possibly-negative epoch count as a
+  clock error) and their only caller (the scaffold test) are removed. Contract
+  documented in the header: local elapsed-time / deadlines only (not civil timestamps);
+  compare directly, elapsed = `end - start`; equal readings valid; no resolution/epoch
+  promised; a default-constructed point is not an error; no negative-return convention.
+- **Scaffold output** (`engine/main.cpp`): coherent C++ streams with direct includes and
+  `'\n'`; keeps the honest "scaffold, not a playable engine" label + the constants.
+  `NO_SQUARE` (byte-sized) is streamed through an explicit integer conversion so it
+  prints `64`, not a character; the width diagnostic is labelled **pointer width** and
+  computed as `sizeof(void*) * CHAR_BIT`. No logging framework / UCI loop / format
+  requirement introduced.
+- **Tests/docs:** the scaffold clock test now checks the return type, `noexcept`, and
+  the steady property at compile time plus a bounded nondecreasing / nonnegative-elapsed
+  runtime sequence. `STATE`/`PLAN` corrected and rescheduled (below).
 
-## Latest checks (this host: x86-64, 8 cores, 126 GiB, Debian GNU/Linux 13, GCC 16.1.0)
-- `check-cpp20` + `check-c` (alias): **green** (23 files, no non-C++20 constructs).
-- `make test CONFIG=release`: **193 PASS groups, 0 fail**, engine builds, **0
-  warnings** under `-Wall -Wextra -Wshadow -Wconversion -Wwrite-strings`.
-- `make test CONFIG=debug`: **193 PASS groups, 0 fail**.
-- Sanitizer: the instrumented build compiles and all 15 suites **pass via the
-  documented `LD_PRELOAD=libasan.so.8` + `detect_leaks=1` workaround** (0 ASan/UBSan/
-  leak diagnostics). But the **ordinary `make test-sanitize` target fails on this
-  host** (`/etc/ld.so.preload` → `libenable-3fg-drag.so`, a VM tool, breaks ASan's
-  loader order for *every* program). Those are separate outcomes: workaround run
-  passes, ordinary target does not.
-- `make test-portable-bits`: **green** (sq_bb + attacks agree with the `<bit>` path).
-- **Clang: not installed in this build environment** (no `clang`/`clang++`; no LLVM
-  dirs) — all verification is under GCC. (The planning-phase check had reported clang
-  21.1.0 in a different context; it is absent here, so no Clang build was run.)
+## Roadmap correction (the functional track resumes)
+T005 **cp1 (non-castling pseudo-legal movegen) is done** — it is not "no T005 work".
+What remains in M1: cp2 (non-castling **legal** filtering), cp3 (castling), cp4
+(perft + independent differential = M1 exit). The C++20 order is now
+**CPP20-3B → T005 cp2/cp3/cp4 → T006/T007 (M2, first playable) → CPP20-4** (build
+profiles + same-ISA comparison, moved to after M2, before M6 platform tuning).
+CPP20-4's requirements are retained, not deleted.
+
+## Latest checks (host: x86-64, 8 cores, 126 GiB, Debian 13, GCC 16.1.0)
+- `check-cpp20`: **green** (23 files, no non-C++20 constructs).
+- release + debug builds: **0 warnings**; engine builds in all three configs.
+- `make test CONFIG=release`: **194 PASS groups, 0 FAIL**, exit 0.
+- `make test CONFIG=debug`: **194 PASS groups, 0 FAIL**, exit 0.
+- Sanitizer: instrumented build + all **15 suites pass via the documented
+  `LD_PRELOAD=libasan.so.8` + `detect_leaks=1` workaround** (0 ASan/UBSan/leak
+  diagnostics). The **ordinary `make test-sanitize` target fails on this host**
+  (`/etc/ld.so.preload` → `libenable-3fg-drag.so` VM tool breaks ASan loader order) —
+  reported separately; the workaround run is the valid code result.
+- **Clang: not on the PATH** (normal lookup) → reported **unrun**; no toolchain
+  installed. Apple Silicon/AArch64 and RV64 remain unverified.
 
 ## Blockers
-- None for CPP20-3A. The two host-level items above (ASan loader preload; missing
-  Clang) are environmental, not code defects, and are reported separately.
+None for CPP20-3B. The ASan-launcher and missing-Clang items are environmental, not
+code defects.
 
 ## Next (exactly one task)
-`CPP20-3B`: the clock contract (steady_clock epoch is not guaranteed nonnegative),
-coherent human-facing output cleanup, `std::numeric_limits` where appropriate (no
-reflexive `INT64_MAX` replacement), the remaining per-module documentation
-(ARCHITECTURE.md policy), and validating the Clang build **where it is installed**
-(AArch64/Apple Silicon + RV64 reported separately). Then `CPP20-4` (final audit +
-build profiles + same-ISA comparison + C++26 readiness), then T005 cp2.
+**T005 cp2 — non-castling legal move generation**: filter each pseudo-legal candidate
+by the *original mover's* king safety after `pos_make_move`/`pos_unmake_move`,
+including geometric attacks from pinned enemy pieces; retain all king-safe moves
+(blocks, sacrifices, EP/promotion evasions); no SEE pruning. (cp1 pseudo-legal gen is
+the existing, tested `src/movegen/`.)

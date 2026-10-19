@@ -1,19 +1,16 @@
 #include "platform/clock.hpp"
+
 #include <chrono>
 
 namespace qwc {
 
-std::int64_t clock_now_ns() {
-  /* std::chrono::steady_clock is the standard library's monotonic,
-   * wall-clock-independent clock. It is monotonic by definition (a later now()
-   * is never earlier) and its epoch is implementation-defined; the standard does
-   * NOT guarantee that the raw time_since_epoch() count is nonnegative. We keep
-   * the documented API contract (a negative count signals a clock error / "time
-   * unknown", see clock.hpp) defensively rather than assuming it away. The exact
-   * epoch / monotonicity / error-signaling contract is a CPP20-3 platform design
-   * review item; the measured behavior here is unchanged in this checkpoint. */
-  auto const since = std::chrono::steady_clock::now().time_since_epoch();
-  auto const ns = std::chrono::duration_cast<std::chrono::nanoseconds>(since).count();
-  return static_cast<std::int64_t>(ns);
+/* A direct return of steady_clock::now(). steady_clock is monotonic by definition
+ * (a later now() is never earlier) and its epoch is implementation-defined and
+ * arbitrary; the returned time point is used for local elapsed-time measurement and
+ * deadline arithmetic, never interpreted as a civil timestamp, a signed count, or an
+ * error indicator. (There is deliberately no conversion to an integer epoch here.) */
+TimePoint clock_now() noexcept {
+  return SteadyClock::now();
 }
+
 }  // namespace qwc

@@ -140,7 +140,7 @@ Checkpoints (each a separate compilable, testable, committable unit):
 ## M2 — minimal UCI + search (uses the labelled temp Material eval; decoupled from NNUE)
 
 ### T006 — labelled temp Material eval + responsive UCI protocol
-- **Deps:** T005. **Files:** `src/search/material.{h,c}`; `src/engine/{uci,options,output}.*`; `src/main.c`.
+- **Deps:** T005. **Files:** `src/search/material.{hpp,cpp}`; `src/engine/{uci,options,output}.{hpp,cpp}`; `src/engine/main.cpp`.
 - **Objective:** a **clearly labelled** temporary material evaluation (search
   plumbing only — never a NNUE fallback); UCI init/options/position/go(depth,
   movetime, infinite)/stop/quit/newgame; **a command-reader thread independent of
@@ -201,7 +201,8 @@ A language transition of the **shipped** engine from C17 to C++20 (the former de
 roadmap item "a", now active). One reviewable change per task; behavior, the full test
 suite and the C17 reference (`93d3c77`) are preserved at every step. It runs as a
 **parallel track** to M0–M7 (which add functionality); the M1 board work resumes at
-T005 cp2 after the CPP20 phases. **Four phases with bounded sub-checkpoints** (C++20 is
+T005 cp2 once phase 3 (CPP20-3B) closes. **Four phases with bounded sub-checkpoints**
+(C++20 is
 the current build baseline; C++26 is the intended direction to *evaluate* —
 REQUIREMENTS.md BUILD-1). Approved product requirements live in `docs/REQUIREMENTS.md`.
 
@@ -292,7 +293,7 @@ The `static_assert` layout contract unchanged (Position 248/8, StateInfo 48/8,
 MoveDelta 20/4, SquareEdit 3/1); 0 raw C array declarations in `src/`; 0 new
 `<cstdint>` includes. The `QWC_FORCE_PORTABLE_BITS` portable-bits path is tested.
 
-### CPP20-3A — bounded FEN + move-buffer interfaces (this checkpoint)
+### CPP20-3A — bounded FEN + move-buffer interfaces  ✅ DONE
 - **Factual / build-policy corrections** (folded in; no separate doc-only stop): the
   2B handoff's misreported `MoveDelta` members, nonexistent types
   (`SearchState`/`SearchLimits`/`SearchResult`/`EpTarget`/`File`/`Rank`/`DIR`) and
@@ -319,18 +320,33 @@ MoveDelta 20/4, SquareEdit 3/1); 0 raw C array declarations in `src/`; 0 new
   and included terminal NUL; truncation/trailing junk; preserved Position/history on
   failure; exact text-length+1 and one-byte-short emission; empty output; canaries and
   unchanged suffix; count reset + canaries; exact/insufficient capacity; empty spans
-  incl. a zero-candidate fixture; diagnostics cleared on success / static-backed on
-  failure / optional omission), the missing aggregate/extent `static_assert`s, and a
-  `test-portable-bits` that builds **and** runs both `sq_bb_test` and `attacks_test`.
+  (a size-0 span and a default-constructed one are never written through for a
+  non-empty position; **no zero-candidate fixture exists for this layer**, so the
+  success-with-count-0 case is documented, not tested); diagnostics cleared on success
+  / static-backed on failure / optional omission), the missing aggregate/extent
+  `static_assert`s, and a `test-portable-bits` that builds **and** runs both
+  `sq_bb_test` and `attacks_test`.
 
-### CPP20-3B — clock contract, output, remaining interface/documentation review (next)
-The clock **contract design review** (steady_clock epoch is not guaranteed
-nonnegative); coherent human-facing output cleanup; `std::numeric_limits` kept where
-appropriate (replace `INT64_MAX`-style `<climits>` macros only when a clearer typed
-expression helps); the remaining per-module documentation (ARCHITECTURE.md policy).
-**Validate** the GCC and Clang builds on x86-64 (both green incl. `check-cpp20`);
-report AArch64 (incl. Apple Silicon) and RV64 support **separately** — do not claim
-untested architecture support.
+### CPP20-3B — clock contract, scaffold output, documentation + schedule  ✅ DONE (this commit)
+The clock **now exposes native time points** (implemented, not just reviewed): the
+`SteadyClock`/`TimePoint` aliases + `[[nodiscard]] TimePoint clock_now() noexcept`
+(a direct `steady_clock::now()` return) with `static_assert(SteadyClock::is_steady)`;
+the old `clock_now_ns()/clock_now_us()` (which treated a possibly-negative epoch count
+as a clock error) and their only caller (the scaffold test) are removed. The contract is
+documented in the header: local elapsed-time / deadlines only, not civil timestamps;
+compare time points directly, elapsed = `end - start`; equal readings valid; no
+resolution/epoch promised; a default-constructed point is not an error or an
+absent-deadline sentinel; no negative-return convention. The scaffold entry point
+(`src/engine/main.cpp`) uses coherent C++ stream output (direct includes, `'\n'`):
+`NO_SQUARE` (byte-sized) is streamed through an explicit integer conversion so it prints
+`64`, not a character, and the width diagnostic is labelled **pointer width**
+(`sizeof(void*) * CHAR_BIT`). `std::numeric_limits` was added only where a typed limit
+actually helps (none was needed here). **Validation:** GCC `check-cpp20` + release +
+debug green (194/194, 0 warnings); the instrumented suite is clean via the documented
+preload workaround while the ordinary sanitizer launcher is host-blocked; Clang is absent
+from this host (reported unrun, no toolchain installed); AArch64/Apple Silicon and RV64
+remain unverified. Phase 3 of the C++20 workstream is **complete** after this checkpoint
+(no 3C); the functional track resumes at **T005 cp2**.
 
 ### CPP20-4 — final audit + build profiles + same-ISA comparison + C++26 readiness
 Final migration/documentation audit (no C-only constructs, no implicit narrowing, a
@@ -352,7 +368,8 @@ into M6; old CPP20-6 platform work splits across CPP20-3/4.)
 
 ## Deliberately deferred (roadmap — scheduled only on later, measured need)
 - **C++20 migration (a).** Now the active **C++20 Modernization Workstream** above
-  (CPP20-1 + CPP20-2A + CPP20-2B done, CPP20-3 next) — no longer deferred. Its continuing rules:
+  (CPP20-1 + 2A + 2B + 3A + 3B done; **phase 3 complete** — CPP20-4 scheduled after M2,
+  before M6) — no longer deferred. Its continuing rules:
   gate on C++20 + the platform standard library, keep the full correctness/NNUE/search
   regression suite green, record the new build + sanitizer coverage, and keep UCI,
   determinism and the single-worker mode identical.
@@ -366,13 +383,20 @@ into M6; old CPP20-6 platform work splits across CPP20-3/4.)
 ---
 
 ## Ordered backlog (IDs reserved)
-C++20 track: `CPP20-1 ✅ → CPP20-2A ✅ → CPP20-2B ✅ → CPP20-3 ← next → CPP20-4`
+C++20 track: `CPP20-1 ✅ → 2A ✅ → 2B ✅ → 3A ✅ → 3B ✅ (phase 3 complete) → CPP20-4`
 (2A = scoped enums + closeout; 2B = namespace + naming + typed constants + `std::array`
-storage + bitboards + build matrix; the old CPP20-5 ISA experiment is absorbed into M6).
-Milestones: `T005 cp2` (legal movegen) → `cp3` (castling) → `cp4` (perft = M1 exit)
-→ `T006..T007` (M2) → `T008..T010` (M3) → `T011` (M4) → `T012..` (M5 strength)
-→ `T…` (M6) → `T…` (M7).
+storage + bitboards + build matrix; 3A = bounded FEN + move-buffer interfaces; 3B =
+steady time-point clock + scaffold output; the old CPP20-5 ISA experiment is absorbed
+into M6). **CPP20-4 is scheduled after M2 and before M3/M6, not immediately after 3B.**
+Milestones (resuming now): `T005 cp2` (non-castling legal movegen, **← next**) → `cp3`
+(castling) → `cp4` (perft = M1 exit) → `T006..T007` (M2, first playable) → `CPP20-4`
+(build profiles + same-ISA comparison) → `T008..T010` (M3) → `T011` (M4) → `T012..`
+(M5 strength) → `T…` (M6) → `T…` (M7).
 Reordering notes: M2 search runs on the **labelled temp eval**, so search and NNUE
 progress independently and merge at M5. The C++20 track is a cross-cutting refactor that
-may interleave with the M-track; CPP20-4 (build profiles + same-ISA comparison) must
-land before M6 (SIMD) so the performance comparison is against a settled C++ baseline.
+may interleave with the M-track; **CPP20-4** (build profiles + same-ISA comparison) is
+placed after M2 (the first playable milestone) and before M6 (SIMD), so the performance
+comparison is against a settled C++ baseline. The C-vs-C++ comparison measures common
+board operations under the same harness, ISA and optimization settings — the old C
+baseline `93d3c77` has no search engine, so comparing its "engine NPS" with a later
+search implementation would be invalid.
