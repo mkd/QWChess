@@ -23,8 +23,9 @@ honors `CONFIG` (so `make test CONFIG=debug` runs the debug binaries). Separate
 `build/cpp20/<config>/` trees — never mix objects across configs.
 
 ## Hard rules
-- All shipped logic is **C++20** (C++26 is the intended later direction to *evaluate*).
-  The C++ standard library is permitted at the implementation level. Prohibited at
+- All shipped logic is **C++20** (C++26 is **deferred** pending an explicit user
+  request; no C++26 migration/readiness work is scheduled). The C++ standard library
+  is permitted at the implementation level. Prohibited at
   play time: LLM calls, remote services, any external evaluator process. Upstream SF19
   C++ remains a *test oracle/opponent* only. C++ does **not** relax the determinism,
   ownership, memory-layout, score or synchronization contracts. The earlier *blanket*

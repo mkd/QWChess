@@ -1,23 +1,25 @@
-/* QwenChess: non-castling pseudo-legal move generation (T005 checkpoint 1).
+/* QwenChess: non-castling move generation (T005 cp1 pseudo-legal; cp2 legal).
  *
- * See movegen.hpp for the contract. Emits every non-castling pseudo-legal
- * candidate: ordinary piece moves/captures, pawn single/double pushes and
- * captures, all four promotions (and capture-promotions), and structural
- * en-passant captures. Own-king safety and castling are out of scope here.
+ * See movegen.hpp for the contracts. The pseudo-legal generator (cp1) emits every
+ * non-castling pseudo-legal candidate: ordinary piece moves/captures, pawn single/
+ * double pushes and captures, all four promotions (and capture-promotions), and
+ * structural en-passant captures. It is read-only: no heap, no Position copy, no
+ * make/unmake, no rebuild, no king-safety query.
  *
- * Uses the existing attack tables (knight/king static masks; sliders over the
- * combined occupancy) and the Position's by_piece/by_color/occ caches. No heap,
- * no Position copy, no make/unmake, no rebuild, no king-safety query.
- *
- * There is one generation implementation (the span primary below). The pointer
- * adapter delegates to it. The private append helpers take the raw buffer +
- * capacity and guard every write against the capacity, so a zero-size (empty)
- * span can never be written through.
+ * The legal generator (cp2) filters those candidates for own-king safety: it keeps
+ * only the moves that leave the original mover's own king unattacked. It probes ONE
+ * scratch copy of the Position per call (a bounded stack-local, not a second
+ * authoritative board) and one local undo record, applying each candidate, asking
+ * pos_is_in_check about the mover, and reversing it. The working buffer + scratch +
+ * record are stack-allocated; there is no per-move heap allocation. This is a
+ * correctness baseline on the current attack query; it is optimized only later,
+ * against perft/differential evidence.
  */
 #include "movegen/movegen.hpp"
 
 #include <cstddef>
 #include <span>
+#include <array>
 
 #include "core/types.hpp"
 #include "core/square.hpp"
@@ -202,6 +204,70 @@ int movegen_pseudo_noncastling(const Position *pos, Move *out, std::size_t capac
   if (count)
     *count = n;   /* the primary already normalized n to 0 on failure */
   return ok ? 1 : 0;
+}
+
+/* ---- legal non-castling (T005 cp2) ---------------------------------------- */
+
+/* Upper bound on the non-castling pseudo-legal candidate count, sized for the fixed
+ * local candidate buffer: at most 16 friendly pieces, each with at most 27
+ * destinations (a queen's maximum; a pawn's promotion-expanded 12 fits under it),
+ * plus up to two separately-appended en-passant captures. 16*27 + 2 == 434. This is
+ * a conservative capacity for the buffer, NOT a claim about the maximum legal count. */
+inline constexpr std::size_t MLEGAL_MAX_CANDIDATES = 16 * 27 + 2;   /* 434 */
+
+bool movegen_legal_noncastling(const Position& pos, std::span<Move> output,
+                               std::size_t& count) {
+  count = 0;   /* zero on entry; written to the full legal count only on success */
+  Move *out = output.data();        /* may be null when output.size() is 0 */
+  std::size_t out_cap = output.size();
+  std::size_t out_n = 0;
+
+  /* 1. Collect the pseudo-legal candidates into a fixed local buffer, independent of
+   *    the caller's output capacity. The bound above is a proven upper bound, so the
+   *    generator cannot overflow it; a failure here would be a real integration bug. */
+  std::array<Move, MLEGAL_MAX_CANDIDATES> cand;
+  std::size_t ncand = 0;
+  if (!movegen_pseudo_noncastling(pos, std::span<Move>(cand.data(), MLEGAL_MAX_CANDIDATES), ncand))
+    return false;   /* count stays 0 */
+
+  /* 2. ONE scratch copy per call (a temporary copy of the existing representation,
+   *    not a second authoritative board and not an undo-stack redesign). Normalize
+   *    the counters to 0/1 and detach the history: this king-safety probe makes and
+   *    unmakes one move at a time from a clean counter state, so it must not reject a
+   *    move merely because the caller's halfmove/fullmove counters sit at the u16
+   *    boundary (65535). Counters and the history are not part of the position key
+   *    (and a valid recorded EP already requires a zero halfmove), so the board, side,
+   *    rights, raw EP and derived caches remain consistent -- no rebuild is needed
+   *    for this normalization. The caller's counters/history are left untouched. */
+  Position scratch = pos;
+  scratch.halfmove = 0;
+  scratch.fullmove = 1;
+  scratch.history = nullptr;   /* detach: the probe does not touch the caller's chain */
+
+  const Color   mover  = pos.side;   /* the ORIGINAL mover, whose own king we test */
+  StateInfo     state{};            /* one local undo record, reused after each unmake */
+
+  /* 3. Filter each candidate: apply it to the scratch, test the original mover's king
+   *    on the resulting board, then reverse. The geometric attack query (pinned enemy
+   *    pieces and the enemy king included) is the single source of truth; a giving
+   *    check is legal, so the side to move after the move is never tested. The same
+   *    rule holds in and out of check, so it retains quiet blocks, checker captures,
+   *    legal pin-line moves, sacrifices, all four promotions and EP evasions. */
+  for (std::size_t i = 0; i < ncand; i++) {
+    const Move m = cand[i];
+    if (!pos_make_move(&scratch, &state, m))
+      return false;   /* an application failure is an integration error, not a rejection */
+    const bool safe = !pos_is_in_check(&scratch, mover);
+    pos_unmake_move(&scratch, &state);   /* always reverse before the next / return */
+    if (!safe)
+      continue;
+    if (out_n >= out_cap)
+      return false;   /* insufficient capacity: count stays 0; a prefix may remain */
+    out[out_n++] = m;
+  }
+
+  count = out_n;   /* success: the complete legal count */
+  return true;
 }
 
 }  // namespace qwc

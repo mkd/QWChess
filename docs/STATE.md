@@ -1,60 +1,60 @@
 # QwenChess — current state
 
-**Milestone:** `CPP20-3B` (done this commit) — the clock now exposes native
-`std::chrono::steady_clock` **time points** (no invented nonnegative epoch, no
-negative-error scalar); the scaffold entry point uses coherent C++ stream output.
-Phase 3 of the C++20 workstream is **complete** after this; there is no 3C.
+**Milestone:** `T005 cp2` (done this commit) — non-castling **legal** move generation
+(`movegen_legal_noncastling`): the cp1 pseudo-legal candidates filtered for own-king
+safety via a scratch probe. M1 continues with **cp3 (castling)** next.
 
-**Last verified commit:** `dcfa2eb` (CPP20-3A) is the parent; this commit is CPP20-3B.
+**Last verified commit:** `bf3840e` (CPP20-3B) is the parent; this commit is T005 cp2.
 
 ## What this checkpoint did
-- **Clock contract** (`platform/clock.{hpp,cpp}`): `using SteadyClock =
-  std::chrono::steady_clock; using TimePoint = SteadyClock::time_point;
-  [[nodiscard]] TimePoint clock_now() noexcept;` implemented as a direct return of
-  `SteadyClock::now()`, with `static_assert(SteadyClock::is_steady)`. The old
-  `clock_now_ns()/clock_now_us()` (which treated a possibly-negative epoch count as a
-  clock error) and their only caller (the scaffold test) are removed. Contract
-  documented in the header: local elapsed-time / deadlines only (not civil timestamps);
-  compare directly, elapsed = `end - start`; equal readings valid; no resolution/epoch
-  promised; a default-constructed point is not an error; no negative-return convention.
-- **Scaffold output** (`engine/main.cpp`): coherent C++ streams with direct includes and
-  `'\n'`; keeps the honest "scaffold, not a playable engine" label + the constants.
-  `NO_SQUARE` (byte-sized) is streamed through an explicit integer conversion so it
-  prints `64`, not a character; the width diagnostic is labelled **pointer width** and
-  computed as `sizeof(void*) * CHAR_BIT`. No logging framework / UCI loop / format
-  requirement introduced.
-- **Tests/docs:** the scaffold clock test now checks the return type, `noexcept`, and
-  the steady property at compile time plus a bounded nondecreasing / nonnegative-elapsed
-  runtime sequence. `STATE`/`PLAN` corrected and rescheduled (below).
+- **Legal generator** (`src/movegen/movegen.{hpp,cpp}`): `movegen_legal_noncastling(const
+  Position&, std::span<Move>, std::size_t&)`. Saves the **original mover's** color,
+  applies each pseudo-legal candidate to **one scratch copy** of the Position per call
+  (bounded stack-local; the caller's Position + history are untouched), tests that
+  mover's king with the **geometric** `pos_is_in_check` (pinned enemy pieces included),
+  reverse-by-`pos_unmake_move`, keeps the candidate iff the mover's king is unattacked.
+  **Retains all king-safe moves** (blocks, sacrifices, EP/promotion evasions, all four
+  promotions); excludes castling + null. Counters are normalized on the scratch (a valid
+  recorded EP already requires halfmove 0), so the *game* overflow guard is intact.
+- **Test** (`tests/movegen_legal_test.cpp`): the 22-position prompt-supplied legal
+  corpus + rank/color mirrors (complete encoded Move sets + EP/promo/no-castling flag
+  semantics), capacity/overflow + canaries (mate/stalemate succeed on an empty span),
+  preservation/determinism (Position incl. history + live records untouched), counter
+  independence (u16 boundaries, both colors, EP retains halfmove 0), and a per-move
+  actual make / child-consistency / cold-rebuild / unmake round-trip.
+- **Docs:** AGENTS/REQUIREMENTS/PLAN/ARCHITECTURE record that **C++26 is deferred**
+  pending an explicit request (C++20 is the baseline; the broad build-profile work
+  still follows M2). Movegen header contract corrected (legal = scratch probe; castling
+  is cp3).
 
-## Roadmap correction (the functional track resumes)
-T005 **cp1 (non-castling pseudo-legal movegen) is done** — it is not "no T005 work".
-What remains in M1: cp2 (non-castling **legal** filtering), cp3 (castling), cp4
-(perft + independent differential = M1 exit). The C++20 order is now
-**CPP20-3B → T005 cp2/cp3/cp4 → T006/T007 (M2, first playable) → CPP20-4** (build
-profiles + same-ISA comparison, moved to after M2, before M6 platform tuning).
-CPP20-4's requirements are retained, not deleted.
+## Known discrepancy (surfaced, not hidden)
+The prompt-supplied `quiet_block` fixture (`k3r3/8/8/8/8/8/8/4KB2 w - - 0 1`) lists
+`e1f1` — a king move onto its **own** bishop on f1, which is impossible. The engine
+correctly produces `e1f2`; its mirror shows `e8f7` vs the corpus `e8f8`. This is a
+one-character typo in the prompt-supplied data, **not** an engine defect. Per the task
+rule ("never replace a fixture to make the test pass") the corpus is kept verbatim and
+this one assertion is the sole test failure.
 
-## Latest checks (host: x86-64, 8 cores, 126 GiB, Debian 13, GCC 16.1.0)
-- `check-cpp20`: **green** (23 files, no non-C++20 constructs).
-- release + debug builds: **0 warnings**; engine builds in all three configs.
-- `make test CONFIG=release`: **194 PASS groups, 0 FAIL**, exit 0.
-- `make test CONFIG=debug`: **194 PASS groups, 0 FAIL**, exit 0.
-- Sanitizer: instrumented build + all **15 suites pass via the documented
-  `LD_PRELOAD=libasan.so.8` + `detect_leaks=1` workaround** (0 ASan/UBSan/leak
-  diagnostics). The **ordinary `make test-sanitize` target fails on this host**
-  (`/etc/ld.so.preload` → `libenable-3fg-drag.so` VM tool breaks ASan loader order) —
-  reported separately; the workaround run is the valid code result.
-- **Clang: not on the PATH** (normal lookup) → reported **unrun**; no toolchain
-  installed. Apple Silicon/AArch64 and RV64 remain unverified.
+## Latest checks (host: x86-64, 8 cores, 126 GiB, Debian, GCC 16.2.0-3)
+- `make check-cpp20`: **green** (24 files, no non-C++20 constructs).
+- Engine builds in **release / debug / sanitize** (exit 0 each); UCI scaffold runs.
+- `make test CONFIG=release` and `CONFIG=debug`: all 14 pre-existing suites pass; the
+  new legal suite passes **except** the `quiet_block` corpus discrepancy above.
+- Sanitizer: with the documented `LD_PRELOAD=libasan.so.8 detect_leaks=1` workaround all
+  16 binaries run **fully** with **0 ASan/UBSan/leak** diagnostics. The *ordinary*
+  `make test-sanitize` target is host-blocked (pre-existing `/etc/ld.so.preload` →
+  `libenable-3fg-drag.so` breaks ASan loader order for *every* program, incl. a trivial
+  fresh one) — environmental, reported separately, unchanged by this checkpoint.
+- **Clang not on PATH** → unrun; AArch64/Apple Silicon + RV64 unverified.
 
 ## Blockers
-None for CPP20-3B. The ASan-launcher and missing-Clang items are environmental, not
-code defects.
+None for the code. The `quiet_block` corpus typo is a documented prompt-side data
+error (surfaced per the task); the ASan-launcher + missing-Clang items are
+environmental, not code defects.
 
 ## Next (exactly one task)
-**T005 cp2 — non-castling legal move generation**: filter each pseudo-legal candidate
-by the *original mover's* king safety after `pos_make_move`/`pos_unmake_move`,
-including geometric attacks from pinned enemy pieces; retain all king-safe moves
-(blocks, sacrifices, EP/promotion evasions); no SEE pruning. (cp1 pseudo-legal gen is
-the existing, tested `src/movegen/`.)
+**T005 cp3 — orthodox castling generation**: internal encoding **king-origin → rook-
+origin** (e1h1/e1a1/e8h8/e8a8), applied as king→g/c + rook→f/d. Legal: the right
+exists; the between-squares are empty (kingside f/g; queenside b/c/d — the **b-file
+empty but not necessarily unattacked**); the **king is unattacked on origin, transit and
+destination** (kingside e/f/g; queenside e/d/c). Per-candidate make/unmake is permitted.

@@ -22,18 +22,21 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 - **position** — the one authoritative board: `Position`, FEN, legal state,
   make/unmake, repetition history, `StateInfo`/`MoveDelta`. Depends on core.
 - **movegen** — legal/pseudo moves, captures, evasions, SEE, staged ordering,
-  histories. Depends on core + position. The **pseudo-legal** generator (cp1, done)
-  is **stateless and read-only** over `Position` (writes candidates into a caller
-  buffer; no make/unmake). The **legal** generator (cp2, next) tests each candidate's
-  own-king safety by **applying it (`pos_make_move`) and reverting it
-  (`pos_unmake_move`)** — a transient, net-zero use of Position's reversible-move
-  machinery — and emits only the king-safe moves (the blanket ban on per-candidate
-  make/unmake is removed). It owns no mutable state of its own.
-  **Current (T005 cp1):** a single allocation-free entry point
-  `movegen_pseudo_noncastling(const Position*, Move*, std::size_t cap, std::size_t *count)`
-  emitting every non-castling pseudo-legal candidate (geometric moves, all four
-  promotions, structural en passant) with **no** own-king-safety filter and no
-  castling; king safety + castling + SEE + evasions land in cp2/cp3.
+  histories. Depends on core + position. Two non-castling generators now exist: the
+  **pseudo-legal** (cp1, done) is **stateless and read-only** over `Position` (writes
+  candidates into a caller buffer; no make/unmake, no king-safety query); the **legal**
+  (cp2, done) filters those candidates for own-king safety by **probing a scratch copy
+  of the Position** (one bounded stack-local per call) via `pos_make_move` /
+  `pos_is_in_check` / `pos_unmake_move` — the caller's Position and history are left
+  untouched, and it owns no mutable state of its own (the lifted per-candidate make/
+  unmake ban applies to this layer only). Both exclude castling (cp3) and null moves;
+  SEE + evasions + staged ordering are later (M2/M5).
+  **Current:** `movegen_pseudo_noncastling(const Position&, std::span<Move>,
+  std::size_t&)` (cp1 primary) + a documented pointer adapter, and
+  `movegen_legal_noncastling(const Position&, std::span<Move>, std::size_t&)` (cp2,
+  single span form, no pointer overload) — the latter keeping a candidate iff the
+  original mover's king is unattacked on the resulting board (geometric attacks incl.
+  pinned enemy pieces; all four promotions, EP evasions, blocks and sacrifices).
 - **nnue** — exact loader, feature extraction (a *consumer* of Position), scalar
   reference, incremental accumulators, optimized kernels, the eval wrapper.
   Depends on core + position. **Never owned by Position; never owns a board.**
@@ -45,7 +48,8 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 Planned-but-not-yet-created modules (documented here; do not scaffold dozens of
 empty files): `position/` internals beyond the scaffold, the `nnue/` sub-files,
 `search/`, and the responsive-UCI pieces of `engine/`. (`movegen/` now exists:
-T005 cp1's `movegen.{hpp,cpp}` non-castling pseudo-legal generator.)
+T005 cp1's non-castling pseudo-legal + cp2's non-castling legal generators, in
+`movegen.{hpp,cpp}`.)
 
 ## Ownership & lifetimes (CORRECTED)
 
@@ -220,9 +224,10 @@ here; this is the reference.
 
 - **Language direction.** Clean, readable, **portable** C++ with measured performance
   and a parallel-search architecture. **C++20 is the current build baseline; C++26 is
-  the intended direction** to evaluate for the final product (REQUIREMENTS.md BUILD-1
-  owns the C++26 readiness review — a flag being accepted is *not* proof the feature
-  works). Use templates, `constexpr` specialization and standard-library facilities
+  deferred** pending an explicit user request (no C++26 migration/readiness work is
+  scheduled; if later requested, REQUIREMENTS.md BUILD-1 owns the C++26 readiness
+  review — a flag being accepted is *not* proof the feature works). Use templates,
+  `constexpr` specialization and standard-library facilities
   **when they improve clarity or performance**; prefer the simpler portable
   implementation when performance is indistinguishable. Focused C-style code /
   intrinsics, or an isolated C component, remain allowed when appropriate and
@@ -294,7 +299,7 @@ deferred until measured need. See PLAN.md for the full CPP20 workstream.
   **CPP20-2B** (namespace/naming/typed constants/`std::array` storage + bitboards +
   build matrix) are done; **CPP20-3** (interfaces/ownership + platform services +
   output + docs) and **CPP20-4** (final audit + build profiles + same-ISA comparison +
-  C++26 readiness + cross-build matrix) remain. Continuing rules: gate on C++20 + the platform standard library, keep the
+  C++26 readiness (deferred) + cross-build matrix) remain. Continuing rules: gate on C++20 + the platform standard library, keep the
   full correctness/NNUE/search regression suite green, record the new build +
   sanitizer coverage, keep UCI, determinism and the single-worker mode byte-identical,
   and keep `Position`/`StateInfo`/`MoveDelta` plain aggregates with no NNUE types.

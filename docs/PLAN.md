@@ -113,16 +113,31 @@ Checkpoints (each a separate compilable, testable, committable unit):
   pawn step, capacity/overflow + canaries, determinism + live history, counter
   independence, and per-candidate make/unmake round-trips. **cp1 is pseudo-legal,
   not legal** (kings may move to attacked squares; a pinned captor's EP stands).
-- **cp2 — own-king safety (legal gen).** (next M1 task) For each pseudo-legal
-  candidate, save the **original mover's color**, apply the move (`pos_make_move`) and
-  unmake it, testing that mover's king against **all enemy geometric attacks on the
-  resulting board — including attacks from pinned enemy pieces**; keep the candidate iff
-  the mover's king is unattacked. **Retain all king-safe moves** (quiet blocks,
-  sacrifices, EP/promotion evasions). A **pure correctness filter** — no SEE/material
-  pruning in legal generation (SEE *ordering* is a later M5 strength feature). The
-  deliberately **unsafe** `mg.boundary` pseudo-candidates (a king stepping to an
-  attacked square) must be **absent** from legal output. Per-candidate make/unmake is
+- **cp2 — own-king safety (legal gen). DONE (this commit).** `movegen_legal_noncastling`
+  in `src/movegen/` (header + impl) + `tests/movegen_legal_test.cpp`. For each pseudo-
+  legal candidate it saves the **original mover's color**, applies the move to a scratch
+  copy of the Position (a bounded stack-local per call; the caller's Position and
+  history are left untouched), tests that mover's king against **all enemy geometric
+  attacks on the resulting board — including pinned enemy pieces** (the geometric attack
+  query, not a "pin exemption"), reverse-by-unmake, and keeps the candidate iff the
+  mover's king is unattacked. **Retains all king-safe moves** (quiet blocks, sacrifices,
+  EP/promotion evasions, all four promotions). A **pure correctness filter** — no SEE/
+  material pruning (SEE *ordering* is a later M5 strength feature). Verified against the
+  prompt-supplied 22-position legal corpus + rank/color mirrors (complete encoded Move
+  sets + EP/promotion/no-castling flag semantics), capacity/overflow + canaries (mate/
+  stalemate succeed on an empty span), preservation/determinism (Position incl. history
+  + live records untouched), counter independence (u16 boundaries, both colors, EP
+  retains halfmove 0; game `make()` still rejects overflow), and a per-move actual make /
+  child-consistency / cold-rebuild / unmake round-trip. Per-candidate make/unmake is
   permitted (the blanket ban is removed).
+  - **Known corpus discrepancy (preserved verbatim per the task; surfaced, not hidden):**
+    the prompt-supplied `quiet_block` fixture (`k3r3/8/8/8/8/8/8/4KB2 w - - 0 1`) lists
+    `e1f1` — a king move onto its own bishop on f1, which is impossible. The engine
+    correctly produces `e1f2` (the safe king move); its mirror shows `e8f7` vs the corpus
+    `e8f8`. This is a one-character typo in the prompt-supplied data, **not** an engine
+    defect; every other fixture + mirror and every other group passes. Per the task rule
+    ("never replace a fixture to make the test pass") the corpus is kept as-is and the
+    one failing assertion is reported.
 - **cp3 — castling.** internal encoding is **king-origin → rook-origin** (e1h1/e1a1/
   e8h8/e8a8); the move is applied as king→g/c and rook→f/d. Legal checks: the right
   exists; the squares between king and rook are empty (kingside f/g; queenside b/c/d,
@@ -202,9 +217,10 @@ roadmap item "a", now active). One reviewable change per task; behavior, the ful
 suite and the C17 reference (`93d3c77`) are preserved at every step. It runs as a
 **parallel track** to M0–M7 (which add functionality); the M1 board work resumes at
 T005 cp2 once phase 3 (CPP20-3B) closes. **Four phases with bounded sub-checkpoints**
-(C++20 is
-the current build baseline; C++26 is the intended direction to *evaluate* —
-REQUIREMENTS.md BUILD-1). Approved product requirements live in `docs/REQUIREMENTS.md`.
+(C++20 is the current build baseline; **C++26 is deferred** pending an explicit user
+request — no C++26 migration/readiness work is scheduled; the broad build-profile work
+still follows M2 — REQUIREMENTS.md BUILD-1). Approved product requirements live in
+`docs/REQUIREMENTS.md`.
 
 ### CPP20-1 — language/build foundation  ✅ DONE
 Renames (`.c`→`.cpp`, `.h`→`.hpp`); Makefile (`CXX`/`CXXFLAGS`, `-std=c++20`,
@@ -348,13 +364,15 @@ from this host (reported unrun, no toolchain installed); AArch64/Apple Silicon a
 remain unverified. Phase 3 of the C++20 workstream is **complete** after this checkpoint
 (no 3C); the functional track resumes at **T005 cp2**.
 
-### CPP20-4 — final audit + build profiles + same-ISA comparison + C++26 readiness
+### CPP20-4 — final audit + build profiles + same-ISA comparison (C++26 readiness deferred)
 Final migration/documentation audit (no C-only constructs, no implicit narrowing, a
 defined memory model, portability limits documented). **Build-profile foundations**
 (REQUIREMENTS.md BUILD-1): explicit compiler / C++ standard / target arch-OS-ABI / CPU /
 toolchain selection with native, portable-distribution and cross modes + a build-info
-report; the **C++26 readiness review** (compiler AND standard-library feature checks,
-Apple Clang vs upstream — a flag being accepted is *not* proof the feature works). A
+report. The **C++26 readiness review is deferred** pending an explicit user request (no
+C++26 migration/readiness work now; if later requested, it would use compiler AND
+standard-library feature checks, Apple Clang vs upstream — a flag being accepted is
+*not* proof the feature works). A
 **same-ISA** performance comparison of the identical C baseline `93d3c77` against the
 C++20 code (same `-march`/optimization, no new ISA) on available hardware, reporting
 generated code, timings, memory, NPS and instruction mix — **actual ISA kernels/tuning
@@ -388,10 +406,10 @@ C++20 track: `CPP20-1 ✅ → 2A ✅ → 2B ✅ → 3A ✅ → 3B ✅ (phase 3 c
 storage + bitboards + build matrix; 3A = bounded FEN + move-buffer interfaces; 3B =
 steady time-point clock + scaffold output; the old CPP20-5 ISA experiment is absorbed
 into M6). **CPP20-4 is scheduled after M2 and before M3/M6, not immediately after 3B.**
-Milestones (resuming now): `T005 cp2` (non-castling legal movegen, **← next**) → `cp3`
-(castling) → `cp4` (perft = M1 exit) → `T006..T007` (M2, first playable) → `CPP20-4`
-(build profiles + same-ISA comparison) → `T008..T010` (M3) → `T011` (M4) → `T012..`
-(M5 strength) → `T…` (M6) → `T…` (M7).
+Milestones (resuming now): `T005 cp2` (non-castling legal movegen) ✅ → **`cp3`
+(castling, ← next)** → `cp4` (perft = M1 exit) → `T006..T007` (M2, first playable) →
+`CPP20-4` (build profiles + same-ISA comparison; C++26 readiness deferred) → `T008..
+T010` (M3) → `T011` (M4) → `T012..` (M5 strength) → `T…` (M6) → `T…` (M7).
 Reordering notes: M2 search runs on the **labelled temp eval**, so search and NNUE
 progress independently and merge at M5. The C++20 track is a cross-cutting refactor that
 may interleave with the M-track; **CPP20-4** (build profiles + same-ISA comparison) is

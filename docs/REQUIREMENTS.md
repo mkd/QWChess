@@ -18,10 +18,12 @@ Nothing below is implemented yet except where a milestone has shipped it.
 **Milestone:** CPP20-4 (build-profile foundations); kernels/tuning are M6.
 **Requirement:**
 - A Makefile workflow with explicit **compiler, C++ standard, target arch/OS/ABI,
-  CPU and toolchain** selection. Plan **C++26** with **compiler AND standard-library
-  feature checks** (Apple Clang vs upstream Clang; gcc/libstdc++ vs clang/libc++).
-  Keep `-std=c++20` in the current checkpoint. **A flag being accepted is not proof
-  that all C++26 features work.**
+  CPU and toolchain** selection. The build-profile modes below target the **C++20**
+  baseline. **C++26 is deferred** pending an explicit user request (no C++26
+  migration/readiness work is scheduled now); keep `-std=c++20`. (If C++26 is later
+  requested, plan it with **compiler AND standard-library feature checks** — Apple
+  Clang vs upstream Clang; gcc/libstdc++ vs clang/libc++; a flag being accepted is
+  *not* proof all C++26 features work.)
 - Three distinct modes:
   1. **Native** — discover supported local CPU + OS capabilities, select an
      implemented backend and suitable compiler flags, and report the choice.
@@ -48,8 +50,9 @@ Nothing below is implemented yet except where a milestone has shipped it.
 
 **Acceptance evidence:** a build-information report (effective flags, toolchain,
 target, enabled backend); the native/portable/cross mode selection is observable and
-correct per host; C++26 readiness is established by feature *checks* (not by a flag
-being accepted); per-target correctness + native performance are recorded separately.
+correct per host; C++26 readiness is **deferred** pending an explicit request (and,
+if later done, established by feature *checks*, not by a flag being accepted); per-
+target correctness + native performance are recorded separately.
 **Status: planned.**
 
 ## BUILD-2 — cross-compilation and reproducibility  *(planned)*
