@@ -1,4 +1,5 @@
-/* QwenChess: non-castling move generation (T005 cp1 pseudo-legal; cp2 legal).
+/* QwenChess: legal move generation (T005 cp1 pseudo-legal; cp2 non-castling legal;
+ * cp3 full legal incl. orthodox castling).
  *
  * See movegen.hpp for the contracts. The pseudo-legal generator (cp1) emits every
  * non-castling pseudo-legal candidate: ordinary piece moves/captures, pawn single/
@@ -6,14 +7,23 @@
  * structural en-passant captures. It is read-only: no heap, no Position copy, no
  * make/unmake, no rebuild, no king-safety query.
  *
- * The legal generator (cp2) filters those candidates for own-king safety: it keeps
- * only the moves that leave the original mover's own king unattacked. It probes ONE
- * scratch copy of the Position per call (a bounded stack-local, not a second
- * authoritative board) and one local undo record, applying each candidate, asking
- * pos_is_in_check about the mover, and reversing it. The working buffer + scratch +
- * record are stack-allocated; there is no per-move heap allocation. This is a
- * correctness baseline on the current attack query; it is optimized only later,
- * against perft/differential evidence.
+ * The non-castling legal generator (cp2) filters those candidates for own-king
+ * safety: it keeps only the moves that leave the original mover's own king
+ * unattacked. It probes ONE scratch copy of the Position per call (a bounded
+ * stack-local, not a second authoritative board) and one local undo record,
+ * applying each candidate, asking pos_is_in_check about the mover, and reversing
+ * it. The working buffer + scratch + record are stack-allocated; there is no per-
+ * move heap allocation.
+ *
+ * The full legal generator (cp3) returns the non-castling legal moves plus the legal
+ * castles. A castle is legal iff the side holds the right, the home king/rook are in
+ * place with an empty path, and the king's origin, transit and destination squares
+ * are all unattacked. The origin is a read-only pos_is_in_check; the transit (an
+ * ordinary one-square king step) and the destination (the actual castle) are probed
+ * on one normalized scratch via existing make/unmake. All probes are bounded
+ * stack-locals; the caller's Position, its history and every live record are left
+ * untouched on every outcome. This is a correctness baseline on the current attack
+ * query; it is optimized only later, against perft/differential evidence.
  */
 #include "movegen/movegen.hpp"
 
@@ -267,6 +277,145 @@ bool movegen_legal_noncastling(const Position& pos, std::span<Move> output,
   }
 
   count = out_n;   /* success: the complete legal count */
+  return true;
+}
+
+/* ---- full legal (T005 cp3): non-castling legal moves + legal castles ---------- */
+
+/* The castling geometry for one side-to-move castle at the mover's home rank `hr`:
+ * the rook origin (the encoded castle's `to`), the path squares that must be empty,
+ * the one-square transit king step, and the encoded castle (king origin -> rook
+ * origin, MV_CASTLE, zero promotion payload). The king origin `e` (e1/e8) is shared
+ * by both sides and is passed in. Square semantics follow FIDE 3.9: short castling
+ * needs f/g empty; long castling needs b/c/d empty (the b-square need only be empty --
+ * it is never a king square and need not be unattacked). */
+struct CastleGeo {
+  Square king_from;   /* e1 / e8 (the shared origin) */
+  Square rook_from;   /* h1/h8 (kingside) or a1/a8 (queenside): the castle's `to` */
+  u64    path_bb;     /* the path squares that must be empty (2 kingside / 3 queenside) */
+  Square transit;     /* the one-square king step toward the rook (f/d or f8/d8) */
+  Move   castle;      /* make_move(king_from, rook_from, MV_CASTLE, 0) */
+};
+
+static void mg_castle_geo(bool kingside, int hr, Square e, CastleGeo *g) {
+  const Square rook = square_of(kingside ? FILE_H : FILE_A, hr);
+  const Square tran = square_of(kingside ? FILE_F : FILE_D, hr);
+  g->king_from = e;
+  g->rook_from = rook;
+  g->transit   = tran;
+  g->path_bb   = square_bb(tran);   /* f or d is always one of the path squares */
+  if (kingside) {
+    g->path_bb |= square_bb(square_of(FILE_G, hr));                 /* g1 / g8 */
+  } else {
+    g->path_bb |= square_bb(square_of(FILE_C, hr))                  /* c1 / c8 (the destination, in path) */
+               |  square_bb(square_of(FILE_B, hr));                 /* b1 / b8 (empty only) */
+  }
+  g->castle = make_move(e, rook, (u32)MoveFlag::MV_CASTLE, 0u);
+}
+
+/* Probe one candidate castle for king safety on the caller's normalized scratch.
+ * The ORIGIN is tested by the caller (a checked king cannot castle at all); this
+ * covers what that does not -- the home rook and the empty path (read from the
+ * authoritative `pos`) -- and the transit + destination, probed on `scratch` via the
+ * proven make/unmake and always restored. Returns 1 if the castle is legal, 0 if it
+ * is safely excluded (a blocked path or an attacked transit/destination), and -1 if a
+ * make failed unexpectedly after the structural prechecks (an internal error the
+ * caller propagates as a hard fail). `scratch` is left restored on every return. */
+static int mg_probe_castle(const Position &pos, Position *scratch, Color mover,
+                           const CastleGeo &g) {
+  const Piece rook = (mover == Color::WHITE) ? Piece::W_ROOK : Piece::B_ROOK;
+
+  /* Structural (read-only on the authoritative `pos`): the home rook is present and
+   * the path is empty. (The right + the king on its home e-square are the caller's.) */
+  if (pos.mailbox[g.rook_from] != rook) return 0;
+  if ((pos.occ & g.path_bb) != 0)       return 0;
+
+  StateInfo st{};
+
+  /* Transit: an ordinary one-square king step onto the path, the rook still at home.
+   * The king lands on `transit`; pos_is_in_check then reports whether that square is
+   * attacked (geometrically -- pinned enemy sliders and the enemy king included). A
+   * failed make here would contradict the structural prechecks above. */
+  const Move step = make_move(g.king_from, g.transit, 0u, 0u);
+  if (pos_make_move(scratch, &st, step) != 1) return -1;
+  const bool transit_safe = pos_is_in_check(scratch, mover) == 0;
+  pos_unmake_move(scratch, &st);
+  if (!transit_safe) return 0;
+
+  /* Destination: the actual castle (king -> g/c, rook relocated). The king lands on
+   * the destination with the rook in its post-castle square, so this tests the final
+   * king square on the true post-castle board (a friendly rook that now blocks an
+   * attack line is accounted for). Giving a check is legal, so the opponent is never
+   * tested. */
+  if (pos_make_move(scratch, &st, g.castle) != 1) return -1;
+  const bool dest_safe = pos_is_in_check(scratch, mover) == 0;
+  pos_unmake_move(scratch, &st);
+  if (!dest_safe) return 0;
+
+  return 1;   /* origin (caller) + transit + destination all safe */
+}
+
+bool movegen_legal(const Position& pos, std::span<Move> output, std::size_t& count) {
+  count = 0;   /* zero on entry; the complete legal count is published only on success */
+  Move *out = output.data();              /* may be null when output.size() is 0 */
+  const std::size_t out_cap = output.size();
+
+  /* 1. The non-castling legal moves, into a bounded local buffer independent of the
+   *    caller's capacity. MLEGAL_MAX_CANDIDATES bounds the pseudo count, hence the
+   *    legal count, so this cannot overflow for a valid position. It bounds only the
+   *    non-castling part; the combined output is the caller's separate span, which is
+   *    capacity-checked for the full total (these moves plus up to two castles). */
+  std::array<Move, MLEGAL_MAX_CANDIDATES> ncbuf;
+  std::size_t nc = 0;
+  if (!movegen_legal_noncastling(pos, std::span<Move>(ncbuf.data(), MLEGAL_MAX_CANDIDATES), nc))
+    return false;   /* count stays 0 */
+
+  /* 2. Publish the non-castling moves into the caller's buffer (bounds-checked). The
+   *    complete set is these plus up to two castles, so a buffer that fits only the
+   *    non-castling moves still fails below (count 0), not a silent truncation. */
+  if (nc > out_cap)
+    return false;   /* the non-castling part alone does not fit */
+  for (std::size_t i = 0; i < nc; i++)
+    out[i] = ncbuf[i];
+  std::size_t out_n = nc;
+
+  /* 3. Legal castles. Only the side to move can castle, and only from its home king
+   *    square; a checked king cannot castle (its evasions are already in `nc`). The
+   *    origin is a read-only query on `pos`; the transit and destination are probed
+   *    on one normalized scratch (counters 0/1, history detached -- none of which is
+   *    part of the position key, and a valid recorded EP already implies halfmove 0).
+   *    The caller's Position is never normalized. */
+  const bool   white = (pos.side == Color::WHITE);
+  const int    hr    = white ? RANK_1 : RANK_8;
+  const Square e     = square_of(FILE_E, hr);
+  const Square ksq   = white ? pos.white_king_sq : pos.black_king_sq;
+  if (ksq == e && pos_is_in_check(&pos, pos.side) == 0) {
+    Position scratch = pos;
+    scratch.halfmove = 0;
+    scratch.fullmove = 1;
+    scratch.history  = nullptr;   /* detach: the probes make/unmake from a clean state */
+
+    const u8 k_right = white ? CR_WK : CR_BK;
+    const u8 q_right = white ? CR_WQ : CR_BQ;
+    for (int sfx = 0; sfx < 2; sfx++) {   /* kingside then queenside (deterministic) */
+      const bool kingside = (sfx == 0);
+      const u8   right    = kingside ? k_right : q_right;
+      if ((pos.cr & right) == 0)
+        continue;                          /* no right on this side -> no castle */
+      CastleGeo g;
+      mg_castle_geo(kingside, hr, e, &g);
+      const int r = mg_probe_castle(pos, &scratch, pos.side, g);
+      if (r < 0)
+        return false;   /* an unexpected make failure is an API failure (count 0) */
+      if (r != 1)
+        continue;       /* safely excluded (blocked path or an attacked transit/dest) */
+      if (out_n >= out_cap)
+        return false;   /* insufficient capacity for the full set -> count 0 */
+      out[out_n++] = g.castle;
+    }
+  }
+
+  count = out_n;   /* success: the complete orthodox legal count (non-castling + castles) */
   return true;
 }
 

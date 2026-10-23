@@ -138,12 +138,23 @@ Checkpoints (each a separate compilable, testable, committable unit):
     defect; every other fixture + mirror and every other group passes. Per the task rule
     ("never replace a fixture to make the test pass") the corpus is kept as-is and the
     one failing assertion is reported.
-- **cp3 — castling.** internal encoding is **king-origin → rook-origin** (e1h1/e1a1/
-  e8h8/e8a8); the move is applied as king→g/c and rook→f/d. Legal checks: the right
-  exists; the squares between king and rook are empty (kingside f/g; queenside b/c/d,
-  the **b-file empty but not necessarily unattacked**); and the **king is unattacked on
-  origin, transit and destination** (kingside e/f/g; queenside e/d/c). Per-candidate
-  make/unmake is permitted (the blanket ban is removed).
+- **cp3 — castling. DONE (this commit).** `movegen_legal` (the **complete** orthodox
+  legal set = `movegen_legal_noncastling` + the legal castles) in
+  `src/movegen/movegen.{hpp,cpp}`. Encoding is **king-origin → rook-origin** (e1h1/
+  e1a1/e8h8/e8a8; MV_CASTLE, zero promotion payload); the move is applied by
+  `pos_make_move` as king→g/c + rook→f/d. A castle is legal iff the mover holds the
+  right, the home king/rook are in place with an empty path (kingside f/g; queenside
+  b/c/d — the **b-file empty but not necessarily unattacked**), and the king is
+  unattacked on **origin, transit and destination** (kingside e/f/g; queenside e/d/c).
+  The origin is a read-only `pos_is_in_check`; the transit (a one-square king step) and
+  the destination (the actual castle) are probed on **one normalized scratch** (bounded
+  stack-local; the caller's Position + history untouched) via the proven make/unmake.
+  All 16 rights masks, both sides, every obstructing path square, and the attacked-but-
+  allowed b/rook squares are covered in `tests/movegen_castling_test.cpp` against an
+  independently generated 19-fixture corpus (python-chess 1.11.2, module sha256
+  recorded in the test header; the `blocked_b` entry was corrected against its own FEN).
+  The two non-castling APIs keep their contracts (they still exclude every castle);
+  null moves and SEE remain later milestones.
 - **cp4 — perft harness + differential (M1 exit).** `perft` **above** position+
   movegen (the board core does not depend on movegen); ≤5 on startpos
   (4,865,609) + ≥3 special-move FENs == trusted counts (fixture provenance
@@ -406,8 +417,8 @@ C++20 track: `CPP20-1 ✅ → 2A ✅ → 2B ✅ → 3A ✅ → 3B ✅ (phase 3 c
 storage + bitboards + build matrix; 3A = bounded FEN + move-buffer interfaces; 3B =
 steady time-point clock + scaffold output; the old CPP20-5 ISA experiment is absorbed
 into M6). **CPP20-4 is scheduled after M2 and before M3/M6, not immediately after 3B.**
-Milestones (resuming now): `T005 cp2` (non-castling legal movegen) ✅ → **`cp3`
-(castling, ← next)** → `cp4` (perft = M1 exit) → `T006..T007` (M2, first playable) →
+Milestones (resuming now): `T005 cp2` (non-castling legal movegen) ✅ → `cp3`
+(castling) ✅ → **`cp4`** (perft, ← next) → `T006..T007` (M2, first playable) →
 `CPP20-4` (build profiles + same-ISA comparison; C++26 readiness deferred) → `T008..
 T010` (M3) → `T011` (M4) → `T012..` (M5 strength) → `T…` (M6) → `T…` (M7).
 Reordering notes: M2 search runs on the **labelled temp eval**, so search and NNUE

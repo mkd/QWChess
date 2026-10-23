@@ -22,21 +22,27 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 - **position** — the one authoritative board: `Position`, FEN, legal state,
   make/unmake, repetition history, `StateInfo`/`MoveDelta`. Depends on core.
 - **movegen** — legal/pseudo moves, captures, evasions, SEE, staged ordering,
-  histories. Depends on core + position. Two non-castling generators now exist: the
+  histories. Depends on core + position. Three generators now exist (two non-castling, plus the full legal incl. castles): the
   **pseudo-legal** (cp1, done) is **stateless and read-only** over `Position` (writes
   candidates into a caller buffer; no make/unmake, no king-safety query); the **legal**
   (cp2, done) filters those candidates for own-king safety by **probing a scratch copy
   of the Position** (one bounded stack-local per call) via `pos_make_move` /
   `pos_is_in_check` / `pos_unmake_move` — the caller's Position and history are left
   untouched, and it owns no mutable state of its own (the lifted per-candidate make/
-  unmake ban applies to this layer only). Both exclude castling (cp3) and null moves;
-  SEE + evasions + staged ordering are later (M2/M5).
+  unmake ban applies to this layer only). The two non-castling APIs still exclude every
+  castle and null moves; the **full legal** generator (cp3, done) returns the cp2 moves
+  plus the legal castles (legal iff the mover holds the right, the home king/rook are in
+  place with an empty path, and the king is unattacked on origin, transit and
+  destination; the b-file need only be empty). SEE + evasions + staged ordering are
+  later (M2/M5).
   **Current:** `movegen_pseudo_noncastling(const Position&, std::span<Move>,
   std::size_t&)` (cp1 primary) + a documented pointer adapter, and
   `movegen_legal_noncastling(const Position&, std::span<Move>, std::size_t&)` (cp2,
-  single span form, no pointer overload) — the latter keeping a candidate iff the
-  original mover's king is unattacked on the resulting board (geometric attacks incl.
-  pinned enemy pieces; all four promotions, EP evasions, blocks and sacrifices).
+  single span form, no pointer overload) keeping a candidate iff the original mover's
+  king is unattacked on the resulting board (geometric attacks incl. pinned enemy
+  pieces; all four promotions, EP evasions, blocks and sacrifices), and
+  `movegen_legal(const Position&, std::span<Move>, std::size_t&)` (cp3, the complete
+  orthodox legal set incl. the legal castles, single span form).
 - **nnue** — exact loader, feature extraction (a *consumer* of Position), scalar
   reference, incremental accumulators, optimized kernels, the eval wrapper.
   Depends on core + position. **Never owned by Position; never owns a board.**
@@ -48,8 +54,8 @@ platform  ←  core  ←  position  ←  movegen  ─┐
 Planned-but-not-yet-created modules (documented here; do not scaffold dozens of
 empty files): `position/` internals beyond the scaffold, the `nnue/` sub-files,
 `search/`, and the responsive-UCI pieces of `engine/`. (`movegen/` now exists:
-T005 cp1's non-castling pseudo-legal + cp2's non-castling legal generators, in
-`movegen.{hpp,cpp}`.)
+T005 cp1's non-castling pseudo-legal + cp2's non-castling legal + cp3's full legal
+generators, in `movegen.{hpp,cpp}`.)
 
 ## Ownership & lifetimes (CORRECTED)
 
