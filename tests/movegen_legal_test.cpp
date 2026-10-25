@@ -302,7 +302,7 @@ static const Fixture fixtures[] = {
     "e1d1 e1d2 e1f1 e1f2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8", "" },
   { "quiet_block",
     "k3r3/8/8/8/8/8/8/4KB2 w - - 0 1",
-    "e1d1 e1d2 e1f1 f1e2", "" },
+    "e1d1 e1d2 e1f2 f1e2", "" },
   { "knight_check_capture",
     "k7/8/8/8/8/5n2/6P1/4K3 w - - 0 1",
     "e1d1 e1e2 e1f1 e1f2 g2f3", "" },
