@@ -6,6 +6,8 @@
 #   make test       build + run the tests (honors CONFIG; release by default)
 #   make test CONFIG=debug|sanitize|release   build + run the tests in that config
 #   make test-sanitize  alias for the ASan/UBSan run (real instrumentation)
+#   make test-perft   full-depth perft gate (all supplied depths; builds qwcperft)
+#   make test-differential  independent movegen differential (pinned python chess; PYTHON=)
 #   make test-portable-bits  force the non-<bit> fallback in the bitboard + attacks tests
 #   make check-cpp20  strict -std=c++20 -pedantic-errors conformance gate over all sources
 #   make check-c      legacy alias for check-cpp20 (the strict C++20 conformance gate)
@@ -19,6 +21,7 @@
 
 CXX      ?= g++
 CONFIG   ?= release
+PYTHON   ?= python3
 NET_DIR  ?= networks
 CPPFLAGS := -Isrc
 LDFLAGS  :=
@@ -37,7 +40,7 @@ STRICT_CPP20 := $(CPPSTD) -pedantic-errors
 
 CXXFLAGS_RELEASE := $(CPPSTD) -O2 -g -march=native
 CXXFLAGS_DEBUG   := $(CPPSTD) -O0 -g
-CXXFLAGS_SANIT   := $(CPPSTD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+CXXFLAGS_SANIT   := $(CPPSTD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -static-libasan
 
 # CONFIG is exactly one of release/debug/sanitize. Any other value is rejected
 # with a clear error instead of silently falling into the sanitizer flags (the
@@ -61,9 +64,9 @@ SRC := src
 OBJ := build/cpp20/$(CONFIG)/obj
 BIN := build/cpp20/$(CONFIG)/bin
 
-# Every source file (core + platform + engine + movegen + tests) for the
-# strict-C++20 check.
-ALL_SRC := $(wildcard $(SRC)/*.cpp $(SRC)/*/*.cpp tests/*.cpp)
+# Every source file (core + platform + engine + movegen + diagnostics + tests + the
+# test-only differential probe) for the strict-C++20 check.
+ALL_SRC := $(wildcard $(SRC)/*.cpp $(SRC)/*/*.cpp tests/*.cpp tools/position_probe.cpp)
 
 # The shipped engine (scaffold). Objects mirror the source tree under obj/src/.
 ENGINE_SRC := $(SRC)/engine/main.cpp $(SRC)/platform/clock.cpp
@@ -106,12 +109,26 @@ MOVEGEN_LEGAL_TEST_OBJ := $(OBJ)/movegen/movegen.o $(OBJ)/tests/movegen_legal_te
 MOVEGEN_LEGAL_TEST_BIN := $(BIN)/movegen_legal_test
 MOVEGEN_CASTLE_TEST_OBJ := $(OBJ)/movegen/movegen.o $(OBJ)/tests/movegen_castling_test.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
 MOVEGEN_CASTLE_TEST_BIN := $(BIN)/movegen_castling_test
-TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN) $(MOVEGEN_TEST_BIN) $(MOVEGEN_LEGAL_TEST_BIN) $(MOVEGEN_CASTLE_TEST_BIN)
 
-DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d) $(MOVEGEN_LEGAL_TEST_OBJ:.o=.d) $(MOVEGEN_CASTLE_TEST_OBJ:.o=.d)
+# Perft diagnostics (T005 cp4): the shared perft module, the qwcperft developer
+# tool (perft + root divide), and the perft regression test. The perft test is part
+# of the ordinary suite (bounded depths); `test-perft` runs its full-depth gate.
+PERFT_OBJ      := $(OBJ)/diagnostics/perft.o
+QWCPERFT_OBJ   := $(PERFT_OBJ) $(OBJ)/diagnostics/perft_main.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
+QWCPERFT_BIN   := $(BIN)/qwcperft
+PERFT_TEST_OBJ := $(PERFT_OBJ) $(OBJ)/tests/perft_test.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
+PERFT_TEST_BIN := $(BIN)/perft_test
+# The independent move-generation differential oracle (test-only): links QWChess and
+# is driven by tools/movegen_diff.py. A tools/ pattern rule below compiles it per config.
+PROBE_OBJ      := $(OBJ)/tools/position_probe.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
+PROBE_BIN      := $(BIN)/position_probe
+
+TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN) $(MOVEGEN_TEST_BIN) $(MOVEGEN_LEGAL_TEST_BIN) $(MOVEGEN_CASTLE_TEST_BIN) $(PERFT_TEST_BIN)
+
+DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d) $(MOVEGEN_LEGAL_TEST_OBJ:.o=.d) $(MOVEGEN_CASTLE_TEST_OBJ:.o=.d) $(PERFT_TEST_OBJ:.o=.d) $(QWCPERFT_OBJ:.o=.d) $(PROBE_OBJ:.o=.d)
 
 .SUFFIXES:
-.PHONY: all release debug sanitize test test-sanitize test-run test-portable-bits all-config check-c check-cpp20 net test-net clean help
+.PHONY: all release debug sanitize test test-sanitize test-run test-perft test-perft-run test-differential test-differential-run test-portable-bits all-config check-c check-cpp20 net test-net clean help
 
 all: release
 
@@ -136,6 +153,12 @@ $(OBJ)/%.o: src/%.cpp | $(OBJ)
 
 # Test objects live in tests/ (not src/); one pattern rule covers all of them.
 $(OBJ)/tests/%.o: tests/%.cpp | $(OBJ)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARN) -MMD -MP -c $< -o $@
+
+# The test-only differential probe lives in tools/; one pattern rule compiles it per
+# config (mirrors the tests/ rule). Not a shipped engine source.
+$(OBJ)/tools/%.o: tools/%.cpp | $(OBJ)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARN) -MMD -MP -c $< -o $@
 
@@ -196,6 +219,15 @@ $(MOVEGEN_LEGAL_TEST_BIN): $(MOVEGEN_LEGAL_TEST_OBJ) | $(BIN)
 $(MOVEGEN_CASTLE_TEST_BIN): $(MOVEGEN_CASTLE_TEST_OBJ) | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(MOVEGEN_CASTLE_TEST_OBJ)
 
+$(QWCPERFT_BIN): $(QWCPERFT_OBJ) | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(QWCPERFT_OBJ)
+
+$(PERFT_TEST_BIN): $(PERFT_TEST_OBJ) | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(PERFT_TEST_OBJ)
+
+$(PROBE_BIN): $(PROBE_OBJ) | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(PROBE_OBJ)
+
 # `test` honors CONFIG (release by default): `make test CONFIG=debug` runs the debug
 # binaries, `make test CONFIG=sanitize` the ASan/UBSan-instrumented ones.
 # `test-sanitize` is the explicit alias for the instrumented run. CONFIG is validated
@@ -208,6 +240,23 @@ test-sanitize:
 	$(MAKE) CONFIG=sanitize test-run
 test-run: $(TEST_BINS)
 	@fail=0; for b in $(TEST_BINS); do echo "running $$(basename $$b) ($(CONFIG))"; ./$$b || fail=1; done; exit $$fail
+
+# Full-depth perft gate: every supplied depth (incl. the deepest), with the
+# qwcperft developer tool built alongside for manual perft/divide runs.
+test-perft:
+	$(MAKE) CONFIG=$(CONFIG) test-perft-run
+test-perft-run: $(PERFT_TEST_BIN) $(QWCPERFT_BIN)
+	@echo "perft full-depth gate [$(CONFIG)]"
+	@fail=0; ./$(PERFT_TEST_BIN) --full || fail=1; exit $$fail
+
+# Independent move-generation differential: build the QWChess-linked oracle probe,
+# then drive it with tools/movegen_diff.py (pinned python `chess` 1.11.2). The Python
+# interpreter is selectable: `make test-differential CONFIG=release PYTHON=/path/python`.
+test-differential:
+	$(MAKE) CONFIG=$(CONFIG) PYTHON=$(PYTHON) test-differential-run
+test-differential-run: $(PROBE_BIN)
+	@echo "move-generation differential [$(CONFIG)] via $(PYTHON)"
+	@$(PYTHON) tools/movegen_diff.py --probe "$(PROBE_BIN)"
 
 # Exercises the non-<bit> portable fallback in core/bitboard.hpp by compiling and
 # running BOTH the bitboard test (sq_bb_test) and the attacks test (attacks_test,

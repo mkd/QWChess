@@ -1,0 +1,12 @@
+# Test-only Python dependencies for the independent move-generation differential
+# (tools/movegen_diff.py). This is NOT part of the shipped engine or the C++ test
+# build -- the engine and its C++ tests never import Python. The differential is a
+# separate, user-invoked check (`make test-differential CONFIG=release`).
+#
+# Pin the exact version the differential was validated against. For an isolated
+# environment (recommended, keeps the dependency out of the default site path):
+#   python3 -m venv .venv          # requires the python3-venv package
+#   .venv/bin/pip install -r tools/test_requirements.txt
+#   make test-differential CONFIG=release PYTHON=.venv/bin/python
+
+chess==1.11.2

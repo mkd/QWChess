@@ -14,10 +14,9 @@
  * subset needing the castle flag and `ep` the subset needing the EP flag (the standard
  * reference castle destinations g/c were converted to the home-rook origins h/a). The
  * sets were copied mechanically from that reference and the copied names/FENs/sets were
- * checked against it. One entry (blocked_b) was CORRECTED against its own FEN: the
- * reference's 26-move set listed a1b1, which is illegal because its FEN places a knight
- * on b1 (the a1 rook's rank ray is blocked); the verified set is 25 moves (see the
- * in-corpus note). This build does not run python-chess (no Python dependency); the
+ * checked against it. The `blocked_b` entry has a b1 knight blocking the a1 rook's rank
+ * ray, so a1b1 is illegal; its verified set is 25 moves (in-corpus note). This build
+ * does not run python-chess (no Python dependency); the
  * reference generator is documented as provenance, and the coordinate strings are test-
  * only notation (a small decoder turns them into Moves). This is NOT production UCI
  * parsing, and a successful file load is not proof of compatibility.
@@ -344,11 +343,10 @@ static const Fixture fixtures[] = {
     "e1h1", "" },
   { "blocked_b",
     "r3k2r/8/8/8/8/8/8/RN2K2R w KQkq - 0 1",
-    /* CORRECTED vs the reference: the b1 knight (RN2K2R) blocks the a1 rook's rank
-     * ray, so a1b1 is ILLEGAL. The reference's 26-move list carried a1b1 (an artifact
-     * of the blocked_c pattern, whose b1 is empty). Independently verified: a1 rook 7
-     * (a2-a8, no b1) + b1 knight 3 + e1 king 5 + h1 rook 9 + the e1h1 kingside castle
-     * (the b1 knight blocks the queenside path) = 25 moves. */
+    /* The b1 knight (RN2K2R) blocks the a1 rook's rank ray, so a1b1 is illegal.
+     * Verified against the FEN: a1 rook 7 (a2-a8) + b1 knight 3 + e1 king 5 (incl. the
+     * e1h1 kingside castle; the b1 knight blocks the queenside path) + h1 rook 9 =
+     * 25 moves. */
     "a1a2 a1a3 a1a4 a1a5 a1a6 a1a7 a1a8 b1a3 b1c3 b1d2 e1d1 e1d2 "
     "e1e2 e1f1 e1f2 e1h1 h1f1 h1g1 h1h2 h1h3 h1h4 h1h5 h1h6 h1h7 h1h8",
     "e1h1", "" },
