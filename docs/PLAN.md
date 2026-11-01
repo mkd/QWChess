@@ -165,24 +165,38 @@ Checkpoints (each a separate compilable, testable, committable unit):
 
 ## M2 — minimal UCI + search (uses the labelled temp Material eval; decoupled from NNUE)
 
-### T006 — labelled temp Material eval + responsive UCI protocol
-- **Deps:** T005. **Files:** `src/search/material.{hpp,cpp}`; `src/engine/{uci,options,output}.{hpp,cpp}`; `src/engine/main.cpp`.
-- **Objective:** a **clearly labelled** temporary material evaluation (search
-  plumbing only — never a NNUE fallback); UCI init/options/position/go(depth,
-  movetime, infinite)/stop/quit/newgame; **a command-reader thread independent of
-  the single search worker + atomic cancellation**; serialized stdout. Advertise
-  only implemented options.
-- **Accept:** UCI smoke test; prompt `stop` is honored; correct mate/stalemate/
-  50-move handling; bounded buffers; validated input.
+### T006a — labelled temp Material eval  ✅ DONE (this commit)
+- **Files:** `src/search/material.{hpp,cpp}`. A **clearly labelled** temporary material
+  evaluation (piece values + a bounded mobility term; read-only, allocation-free; the range
+  is `static_assert`-ed inside the reserved material interval). Never a NNUE fallback; the
+  real NNUE eval replaces it at the search horizon in M3. See T007a (the search that uses it).
 
-### T007 — iterative deepening negamax + quiescence + TT + time management
-- **Deps:** T006. **Files:** `src/search/{search,tt,timeman}.*`.
-- **Objective:** ID alpha-beta, check-evading quiescence, basic ordering, TT,
-  soft/hard time + overhead; a legal fallback + the last completed iteration are
-  kept when interrupted. PVS/aspiration are **later, isolated** steps.
-- **Accept (M2 exit):** reproducible bench; plays a legal self-game; correct
-  mate/draw/no-legal-move; aborted search returns a legal move + last finished
-  iter; ASan/UBSan clean.
+### T006b — responsive UCI protocol  (next)
+- **Deps:** T005, T007a. **Files:** `src/engine/{uci,options,output}.{hpp,cpp}`; `src/engine/main.cpp`.
+- **Objective:** UCI init/options/position/go(depth, movetime, infinite)/stop/quit/new;
+  **a command-reader thread independent of the single search worker + atomic
+  cancellation**; serialized stdout; `info`/`bestmove`; mate/stalemate/`0000` output.
+  Advertise only implemented options. `do_search` (T007a) is ready to call.
+- **Accept:** UCI smoke test; prompt `stop` is honored; correct mate/stalemate/50-move
+  handling; bounded buffers; validated input.
+
+### T007a — iterative deepening negamax + quiescence  ✅ DONE (this commit)
+- **Files:** `src/search/search.{hpp,cpp}`. `do_search` (the synchronous engine search): a
+  per-search `SearchWork` arena (state stack + `MAX_PLY` move buffers + per-ply `SearchData`;
+  no per-node heap) + iterative-deepening fail-soft negamax + a quiescence (in check: every
+  evasion; otherwise the captures, static stand-pat, `MAX_PLY`-bounded). Legal moves only;
+  mates (`mated_in(ply)`), stalemate (0), the draw policy (3-fold / halfmove≥100); depth /
+  node-budget / movetime-deadline / infinite limits; the atomic stop; a legal fallback + the
+  last fully completed iteration are kept when interrupted; a no-move root returns `0000`.
+  `tests/search_test.cpp` gates it. **The TT + time-management (T007b) are the next step.**
+
+### T007b — transposition table + time management
+- **Deps:** T007a. **Files:** `src/search/{tt,timeman}.*`. A C-memory-model-correct TT (the
+  score/perspective/depth/bound/plies rules; rule-50 + repetition-aware) + soft/hard time
+  + overhead + bounded cancellation latency. PVS/aspiration are **later, isolated** steps.
+- **Accept (M2 exit):** reproducible bench; plays a legal self-game (with T006b); correct
+  mate/draw/no-legal-move; aborted search returns a legal move + last finished iter;
+  ASan/UBSan clean.
 
 ---
 
