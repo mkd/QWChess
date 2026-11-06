@@ -25,15 +25,17 @@ PYTHON   ?= python3
 NET_DIR  ?= networks
 CPPFLAGS := -Isrc
 LDFLAGS  :=
-# Optional sanitizer-only linker flags, consumed ONLY by the sanitize configuration
-# (see SANIT_LDFLAGS below). Empty by default: the ordinary dynamic ASan linkage is the
-# toolchain default and is what a normal host wants. Set it, e.g.
-#   make test-sanitize SANITIZER_LDFLAGS=-static-libasan
-# on a host whose preloaded hook (a setuid /etc/ld.so.preload entry) breaks the dynamic
-# ASan loader order: static ASan sidesteps the dynamic loader entirely. Only the
-# sanitize config consumes it; release/debug link without it. An unrecognized value is
-# deliberately NOT filtered -- it is handed to the linker and fails visibly there.
-SANITIZER_LDFLAGS ?=
+# Sanitizer-only linker flags, consumed ONLY by the sanitize configuration (see
+# SANIT_LDFLAGS below). Default is STATIC ASan (-static-libasan): this environment has
+# a preloaded hook (a setuid /etc/ld.so.preload entry) that breaks the DYNAMIC ASan
+# loader order -- the dynamic runtime aborts at startup with "ASan runtime does not
+# come first in initial library list". Statically linking the ASan runtime sidesteps
+# the dynamic loader entirely and works both here and on hosts without the hook.
+# Override, e.g. `make test-sanitize SANITIZER_LDFLAGS=` for ordinary dynamic
+# linkage on a clean host. Only the sanitize config consumes it; release/debug link
+# without it. An unrecognized value is deliberately NOT filtered -- it is handed to
+# the linker and fails visibly there.
+SANITIZER_LDFLAGS ?= -static-libasan
 
 # One shared language standard. Used by BOTH the ordinary builds (release/debug/
 # sanitize) and the strict check-cpp20 gate, so the shipped engine is compiled as
@@ -140,7 +142,7 @@ CODEC_TEST_BIN := $(BIN)/uci_codec_test
 # The T006 synchronous search (this checkpoint): iterative deepening over the legal
 # generator with the temporary Material evaluation. Links the clock (deadline checks)
 # in addition to the movegen + position stack.
-SEARCH_TEST_OBJ := $(OBJ)/tests/search_test.o $(OBJ)/search/search.o $(OBJ)/search/material.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o $(OBJ)/platform/clock.o
+SEARCH_TEST_OBJ := $(OBJ)/tests/search_test.o $(OBJ)/search/search.o $(OBJ)/search/material.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/engine/uci_codec.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o $(OBJ)/platform/clock.o
 SEARCH_TEST_BIN := $(BIN)/search_test
 
 # Perft diagnostics (T005 cp4): the shared perft module, the qwcperft developer
@@ -175,7 +177,7 @@ sanitize:
 # Per-configuration build of the engine binary.
 all-config: $(ENGINE_BIN)
 
-$(ENGINE_BIN): $(ENGINE_OBJ) | $(BIN)
+$(ENGINE_BIN): $(ENGINE_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(ENGINE_OBJ)
 	@echo "built $@ ($(CONFIG))"
 
@@ -201,73 +203,73 @@ $(OBJ) $(BIN):
 # Per-configuration test binaries: built + linked with the current CONFIG's flags
 # (CXXFLAGS above) into build/cpp20/<config>/bin/. `test` / `test-sanitize` build
 # and run them (see the `test` target below for how CONFIG is honored).
-$(SCAFFOLD_TEST_BIN): $(SCAFFOLD_TEST_OBJ) | $(BIN)
+$(SCAFFOLD_TEST_BIN): $(SCAFFOLD_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(SCAFFOLD_TEST_OBJ)
 
-$(SQBB_TEST_BIN): $(SQBB_TEST_OBJ) | $(BIN)
+$(SQBB_TEST_BIN): $(SQBB_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(SQBB_TEST_OBJ)
 
-$(MOVE_TEST_BIN): $(MOVE_TEST_OBJ) | $(BIN)
+$(MOVE_TEST_BIN): $(MOVE_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MOVE_TEST_OBJ)
 
-$(ATTACKS_TEST_BIN): $(ATTACKS_TEST_OBJ) | $(BIN)
+$(ATTACKS_TEST_BIN): $(ATTACKS_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(ATTACKS_TEST_OBJ)
 
-$(ZOB_TEST_BIN): $(ZOB_TEST_OBJ) | $(BIN)
+$(ZOB_TEST_BIN): $(ZOB_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(ZOB_TEST_OBJ)
 
-$(POS_TEST_BIN): $(POS_TEST_OBJ) | $(BIN)
+$(POS_TEST_BIN): $(POS_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(POS_TEST_OBJ)
 
-$(FEN_TEST_BIN): $(FEN_TEST_OBJ) | $(BIN)
+$(FEN_TEST_BIN): $(FEN_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(FEN_TEST_OBJ)
 
-$(BOUNDARY_TEST_BIN): $(BOUNDARY_TEST_OBJ) | $(BIN)
+$(BOUNDARY_TEST_BIN): $(BOUNDARY_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(BOUNDARY_TEST_OBJ)
 
-$(MAKEUNMAKE_TEST_BIN): $(MAKEUNMAKE_TEST_OBJ) | $(BIN)
+$(MAKEUNMAKE_TEST_BIN): $(MAKEUNMAKE_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MAKEUNMAKE_TEST_OBJ)
 
-$(EP_TEST_BIN): $(EP_TEST_OBJ) | $(BIN)
+$(EP_TEST_BIN): $(EP_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(EP_TEST_OBJ)
 
-$(CASTLING_TEST_BIN): $(CASTLING_TEST_OBJ) | $(BIN)
+$(CASTLING_TEST_BIN): $(CASTLING_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(CASTLING_TEST_OBJ)
 
-$(PROMO_TEST_BIN): $(PROMO_TEST_OBJ) | $(BIN)
+$(PROMO_TEST_BIN): $(PROMO_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(PROMO_TEST_OBJ)
 
-$(NULL_TEST_BIN): $(NULL_TEST_OBJ) | $(BIN)
+$(NULL_TEST_BIN): $(NULL_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(NULL_TEST_OBJ)
 
-$(REPETITION_TEST_BIN): $(REPETITION_TEST_OBJ) | $(BIN)
+$(REPETITION_TEST_BIN): $(REPETITION_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(REPETITION_TEST_OBJ)
 
-$(MOVEGEN_TEST_BIN): $(MOVEGEN_TEST_OBJ) | $(BIN)
+$(MOVEGEN_TEST_BIN): $(MOVEGEN_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MOVEGEN_TEST_OBJ)
 
-$(MOVEGEN_LEGAL_TEST_BIN): $(MOVEGEN_LEGAL_TEST_OBJ) | $(BIN)
+$(MOVEGEN_LEGAL_TEST_BIN): $(MOVEGEN_LEGAL_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MOVEGEN_LEGAL_TEST_OBJ)
 
-$(MOVEGEN_CASTLE_TEST_BIN): $(MOVEGEN_CASTLE_TEST_OBJ) | $(BIN)
+$(MOVEGEN_CASTLE_TEST_BIN): $(MOVEGEN_CASTLE_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MOVEGEN_CASTLE_TEST_OBJ)
 
-$(MATERIAL_TEST_BIN): $(MATERIAL_TEST_OBJ) | $(BIN)
+$(MATERIAL_TEST_BIN): $(MATERIAL_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(MATERIAL_TEST_OBJ)
 
-$(CODEC_TEST_BIN): $(CODEC_TEST_OBJ) | $(BIN)
+$(CODEC_TEST_BIN): $(CODEC_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(CODEC_TEST_OBJ)
 
-$(SEARCH_TEST_BIN): $(SEARCH_TEST_OBJ) | $(BIN)
+$(SEARCH_TEST_BIN): $(SEARCH_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(SEARCH_TEST_OBJ)
 
-$(QWCPERFT_BIN): $(QWCPERFT_OBJ) | $(BIN)
+$(QWCPERFT_BIN): $(QWCPERFT_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(QWCPERFT_OBJ)
 
-$(PERFT_TEST_BIN): $(PERFT_TEST_OBJ) | $(BIN)
+$(PERFT_TEST_BIN): $(PERFT_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(PERFT_TEST_OBJ)
 
-$(PROBE_BIN): $(PROBE_OBJ) | $(BIN)
+$(PROBE_BIN): $(PROBE_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(PROBE_OBJ)
 
 # `test` honors CONFIG (release by default): `make test CONFIG=debug` runs the debug

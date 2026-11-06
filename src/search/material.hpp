@@ -13,12 +13,16 @@
  *   Pawn 100   Knight 320   Bishop 330   Rook 500   Queen 900   King 0
  *
  * White material counts positive, black negative; the result is negated when it is
- * black to move. The maximum possible one-sided material is 8*100 + 2*320 + 2*330 +
- * 2*500 + 900 = 4000 cp, so the score is ALWAYS strictly inside the reserved
- * tablebase/mate interval (VALUE_TB_LOSS_IN_MAX_PLY, VALUE_TB_WIN_IN_MAX_PLY) and can
- * never collide with a mate or tablebase score (static_assert below). The evaluator
- * does NOT adjudicate mate, stalemate or repetition -- that is the search's job; it
- * only reports the static material balance of a nonterminal position.
+ * black to move. The score is bounded by kMaterialMax (below) -- a
+ * representation-safe bound that allows up to fifteen non-king pieces per side
+ * (promotions make that reachable, e.g. a board with a promoted queen plus the
+ * seven pawns and both minor pieces on each flank) -- and is therefore ALWAYS
+ * strictly inside the reserved tablebase/mate interval
+ * (VALUE_TB_LOSS_IN_MAX_PLY, VALUE_TB_WIN_IN_MAX_PLY) and can never collide with a
+ * mate or tablebase score (static_assert below). The evaluator does NOT adjudicate
+ * mate, stalemate or repetition -- that is the search's job; it only reports the
+ * static material balance of a nonterminal position. (There is NO tempo bonus and NO
+ * mobility term: the score is the piece-material balance alone.)
  *
  * Ownership/lifetime: a pure read of the Position's derived piece bitboards
  * (by_piece) + its side. It allocates nothing and never mutates *pos, its history
@@ -28,6 +32,7 @@
 #ifndef QWC_SEARCH_MATERIAL_HPP
 #define QWC_SEARCH_MATERIAL_HPP
 
+#include <array>
 #include <cstddef>
 
 #include "core/types.hpp"
@@ -38,8 +43,9 @@ namespace qwc {
 /* The fixed piece values (centipawns) of this checkpoint, indexed by the frozen
  * one-byte Piece code (0..15). White pieces (1..6) are positive, black (9..14)
  * negative; the empty square (0) and the in-table-but-unnamed slots (7, 8, 15) and
- * the kings are 0. The values mirror the task specification exactly. */
-inline constexpr Value kPieceValue[PIECE_NB] = {
+ * the kings are 0. The values mirror the task specification exactly. A fixed-size
+ * std::array (a contiguous immutable lookup table, read-only). */
+inline constexpr std::array<Value, PIECE_NB> kPieceValue = {
     /* 0  */       0,   /* NO_PIECE */
     /* 1  */     100,   /* W_PAWN   */
     /* 2  */     320,   /* W_KNIGHT */
@@ -58,13 +64,17 @@ inline constexpr Value kPieceValue[PIECE_NB] = {
     /* 15 */       0,   /* (in-table, unnamed) */
 };
 
-/* The maximum absolute material a single side can hold (a full, un-promoted army):
- * 8 pawns + 2 knights + 2 bishops + 2 rooks + 1 queen. The eval can never exceed
- * this in magnitude, so it is strictly inside the reserved TB/mate interval and can
- * never be mistaken for a mate/TB score. Pinned at compile time. */
-inline constexpr Value kMaterialMax =
-    8 * kPieceValue[1] + 2 * kPieceValue[2] + 2 * kPieceValue[3]
-    + 2 * kPieceValue[4] + kPieceValue[5];   /* == 4000 cp */
+/* The maximum absolute material a single side can hold. Promotions make it possible
+ * for a side to hold up to FIFTEEN non-king pieces (the startpos army of 16 pieces
+ * minus its king, with one or more pawns promoted and kept as extra pieces), each
+ * worth at most the queen's 900 cp, so one side's material is at most 15 * 900 =
+ * 13500 cp in magnitude (the common un-promoted army is only 4000 cp; 13500 is the
+ * representation-safe bound). The signed score (one side minus the other, from the
+ * side-to-move perspective) is therefore at most 13500 in magnitude -- strictly
+ * inside the reserved tablebase/mate interval (VALUE_TB_LOSS_IN_MAX_PLY,
+ * VALUE_TB_WIN_IN_MAX_PLY), which is far wider, so the eval can never be mistaken
+ * for a mate or tablebase score. Pinned at compile time. */
+inline constexpr Value kMaterialMax = 15 * kPieceValue[to_under(Piece::W_QUEEN)];   /* == 13500 cp */
 
 static_assert(kMaterialMax < VALUE_TB_WIN_IN_MAX_PLY &&
               -kMaterialMax > VALUE_TB_LOSS_IN_MAX_PLY,

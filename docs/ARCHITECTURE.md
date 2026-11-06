@@ -103,14 +103,21 @@ the host's RAM. (The on-disk net is 94 MiB; weights decompress larger in memory.
   adjudication rules, not structural FEN limits. Reject input overflow before
   narrowing; T004 must check increments before they overflow.
 
-### Score scale (derived from `MAX_PLY=256`; ordering asserted at compile time)
+### Score scale (pinned Stockfish-19 scheme; ordering asserted at compile time)
 ```
-mated_in_max(-30744) < tb_loss(-30487) < draw(0) < tb_win(30487) < mate_in_max(30744) < infinite(32000) < none(32001)
+tb_loss_in_max(-30487) < mated_in_max(-30000) < ... < draw/none(0) < ... < tb(29999)
+  < mate_in_max(30000) <= tb_win_in_max(30487) < mate(30488) < infinite(32000)
 ```
-Mate distance: `mate_in(ply)=31000-ply`. NNUE static eval is clamped to the open
-interval `(tb_loss, tb_win)` so it never collides with mate/TB scores. The TT
-stores **ply-normalized** mate scores and must treat rule50/repetition-dependent
-entries as non-reusable across search cycles.
+Mate distance: `mate_in(ply)=30488-ply` (a mate within MAX_PLY=256 scores in
+[30232, 30487]; the reserved forced-win interval is [30000, 30487]);
+`mated_in(ply)=ply-30488`. `VALUE_NONE=0=VALUE_DRAW` (the SF19 sentinel): a 0
+score is ambiguous between a real draw and a stopped/failed node, and callers
+disambiguate by state flags, never by value. The `<=` between `mate_in_max` and
+`tb_win_in_max` is deliberate: a tablebase win completing within the horizon is
+scored as `mate_in(1)=30487`. NNUE static eval is clamped to the open interval
+`(-29999, +29999) = (-tb, +tb)` so it never collides with forced-win scores.
+The TT stores **ply-normalized** mate scores and must treat
+rule50/repetition-dependent entries as non-reusable across search cycles.
 
 ## The reversible-move contract (chess-level)
 

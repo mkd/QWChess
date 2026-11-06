@@ -18,8 +18,13 @@
  * Parse resolution: an input token is resolved against the COMPLETE legal move set of
  * the position (movegen_legal), so en-passant / promotion / castle flags are derived
  * correctly and a pinned or otherwise illegal move is rejected (it simply is not in
- * the legal set). 0000 is rejected as a playable move (it is only the output
- * no-move sentinel; there is no playable null move).
+ * the legal set). A candidate matches when its CANONICAL WIRE form equals the token
+ * squares: a castle's wire 'to' is the king's g/c destination, every other move its
+ * ordinary destination -- the token's squares are NEVER remapped to internal
+ * encodings, so an ordinary rook/queen move from a home-king square (e1-g1 with the
+ * king elsewhere) is accepted as itself, and the internal castle spelling (e1-h1) is
+ * rejected. 0000 is rejected as a playable move (it is only the output no-move
+ * sentinel; there is no playable null move).
  *
  * Failure contract (tested): on any parse failure `out` is left UNCHANGED and the
  * call returns false; on success `out` is set and the call returns true. A failed
@@ -78,8 +83,13 @@ inline constexpr int kUciMoveText = 6;
  * bytes (5 chars + NUL); if `cap < kUciMoveText` nothing is written and 0 is
  * returned. Ordinary moves and en-passant use the 4-char form; a promotion appends
  * its lowercase piece (5 chars); a castle emits the king's g/c destination (the
- * internal rook-origin is never leaked). The result is exactly the documented UCI
- * form and round-trips through uci_move_parse on the destination position. */
+ * internal rook-origin is never leaked); move_none() (the no-move sentinel) is
+ * EXPLICITLY emitted as the 4-char "0000" (it is a root with no legal move --
+ * checkmate / stalemate -- or an internal failure with no known move; note that
+ * move_from(move_none()) is square 0 = a1, so it must never fall through to the
+ * ordinary path, which would emit a bogus "a1a1"). The result is exactly the
+ * documented UCI form and round-trips through uci_move_parse on the destination
+ * position (a "0000" output is a sentinel, not a parseable move). */
 [[nodiscard]] int uci_move_emit(Move m, char* buf, std::size_t cap);
 
 }  // namespace qwc

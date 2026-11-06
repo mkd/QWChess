@@ -52,6 +52,15 @@ int main() {
   QWC_TRUE(fen_load(pos, promo_qb), "black queen loads");
   QWC_EQ_I(eval_material(pos), -900, "black Q on a7 == -900");
 
+  /* 4b. The 15-non-king-piece bound: a promoted queen added to a nearly-full army
+   *     leaves 15 non-king white pieces (7 P + 2 R + 2 N + 2 B + 2 Q) = 4800 cp,
+   *     still strictly inside the reserved TB/mate interval (kMaterialMax is 15*900). */
+  const char *promo_many = "7k/8/8/8/8/4Q3/PPPP1PPP/RNBQKBNR w KQ - 0 1";
+  QWC_TRUE(fen_load(pos, promo_many), "15 non-king white pieces loads");
+  QWC_EQ_I(eval_material(pos), 4800, "15 non-king pieces == +4800 (within kMaterialMax)");
+  QWC_TRUE(eval_material(pos) > VALUE_TB_LOSS_IN_MAX_PLY && eval_material(pos) < VALUE_TB_WIN_IN_MAX_PLY,
+           "material stays strictly inside the reserved TB/mate interval");
+
   /* 5. The evaluation is a pure read over a position with a LIVE history chain: it
    *    leaves the Position valid, the history pointer intact, and every byte unchanged.
    *    Build the chain with one real make, snapshot, evaluate, and diff. */

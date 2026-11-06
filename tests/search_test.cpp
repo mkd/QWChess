@@ -12,7 +12,10 @@
 #include <atomic>
 #include <array>
 
+#include <cstring>
+
 #include "core/square.hpp"
+#include "engine/uci_codec.hpp"
 #include "movegen/movegen.hpp"
 #include "position/fen.hpp"
 #include "position/position.hpp"
@@ -146,6 +149,153 @@ int main() {
   SearchResult r2 = do_search(pos, deep(), stop);
   QWC_EQ_I(r.bestmove, r2.bestmove, "quiescence: deterministic bestmove");
   QWC_EQ_I(r.score, r2.score, "quiescence: deterministic score");
+
+  /* ---- a REAL PV: every emitted PV move replays (parses + makes) from the root ---- */
+  QWC_TRUE(fen_load(pos, startpos), "startpos (pv replay)");
+  r = do_search(pos, deep(), stop);
+  {
+    Position rp{};
+    QWC_TRUE(fen_load(rp, startpos), "replay root loads");
+    std::array<StateInfo, MAX_PLY> rstates{};
+    bool replay_ok = true;
+    for (int i = 0; i < r.pv_size; ++i) {
+      char tok[8];
+      Move m = move_none();
+      if (uci_move_emit(r.pv[i], tok, sizeof(tok)) <= 0 || uci_move_parse(rp, tok, m) != 1) { replay_ok = false; break; }
+      if (!pos_make_move(&rp, &rstates[i], m)) { replay_ok = false; break; }
+    }
+    QWC_TRUE(r.pv_size >= 1, "quiet: a non-empty PV");
+    QWC_TRUE(replay_ok, "every PV move replays as a legal move from the root");
+    QWC_TRUE(r.pv[0] == r.bestmove, "the PV starts with the bestmove");
+  }
+
+  /* ---- the root window contains every real score: a mate-in-1 is scored EXACTLY --
+   * (The old classification-threshold window excluded 30487; the full window must
+   * report the true value, not a bound.) The best move must be a genuine mate. */
+  QWC_TRUE(fen_load(pos, "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1"), "mate-in-1 FEN loads");
+  r = do_search(pos, deep(), stop);
+  QWC_EQ_I(r.score, mate_in(1), "mate-in-1 scored exactly (+30487: the window contained it)");
+  QWC_TRUE(is_legal(pos, r.bestmove), "mate-in-1: a legal bestmove");
+  QWC_EQ_I(r.completed_depth, 1, "the extremal mate (mate_in(1)) terminates the ID loop at depth 1");
+  {
+    Position mp{};
+    std::array<StateInfo, 2> ms{};
+    QWC_TRUE(fen_load(mp, "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1"), "mate check root loads");
+    QWC_TRUE(pos_make_move(&mp, &ms[0], r.bestmove), "the bestmove makes");
+    std::array<Move, kSearchMoveCapacity> mm{};
+    std::size_t mn = 0;
+    movegen_legal(mp, mm, mn);
+    QWC_TRUE(mn == 0 && pos_is_in_check(&mp, mp.side), "the bestmove is a checkmate (no evasion, in check)");
+  }
+
+  /* ---- a faster mate is preferred among alternatives: the same position that is a
+   *    stalemate UNLESS the queen checks Qa5# -- the immediate mate (distance 1) must
+   *    beat the longer forced K+Q mate at every depth. */
+  QWC_TRUE(fen_load(pos, "k1K5/8/1Q6/8/8/8/8/8 w - - 0 1"), "stalemate-break FEN loads");
+  {
+    SearchLimits d16;
+    d16.depth = 16;
+    r = do_search(pos, d16, stop);
+    QWC_EQ_I(r.score, mate_in(1), "the immediate Qa5# is preferred over the longer forced mate");
+    QWC_EQ_I(move_from(r.bestmove), square_of(1, 5), "the mate is the queen's (from b6)");
+    QWC_EQ_I(move_to(r.bestmove), square_of(0, 4), "landing on a5 (Qa5#)");
+    QWC_EQ_I(r.completed_depth, 1, "the extremal mate stops the loop at depth 1 (not depth 16)");
+  }
+
+  /* ---- the quiescence seam: mate beats the draw clock, even at the horizon --------
+   * (black to move; the king h8 is mated by the queen g7, defended by Kf6; the
+   * halfmove clock is 100. The no-legal-move outcome MUST be the mate, never the
+   * 50-move draw that the old ordering checked first.) */
+  {
+    QWC_TRUE(fen_load(pos, "7k/6Q1/5K2/8/8/8/8/8 b - - 100 1"), "mated-at-horizon FEN loads");
+    std::atomic<bool> s2(false);
+    SearchLimits l;
+    auto pr = qwc::search_test::qsearch_probe(pos, 4, -VALUE_INFINITE, +VALUE_INFINITE, l, s2);
+    QWC_EQ_I(pr.score, mated_in(4), "a mated horizon (halfmove 100) is a MATE, not a draw");
+    QWC_EQ_I((long long)pr.nodes, 1, "the horizon node is counted exactly once");
+    QWC_TRUE(!pr.stopped && !pr.failed, "a clean horizon: no stop, no failure");
+  }
+  /* ---- the node-entry contract via the seam: a limit AT ENTRY stops the node ------
+   * (a preset stop / an expired deadline / a node budget of 1: one count, a
+   * placeholder, never a value; a stopped node is not a failed one) */
+  {
+    QWC_TRUE(fen_load(pos, startpos), "startpos (node entry)");
+    std::atomic<bool> s2(true);   /* a preset stop */
+    SearchLimits l;
+    auto pr = qwc::search_test::qsearch_probe(pos, 0, -VALUE_INFINITE, +VALUE_INFINITE, l, s2);
+    QWC_EQ_I(pr.score, VALUE_NONE, "a pre-set stop yields the placeholder, never a score");
+    QWC_EQ_I((long long)pr.nodes, 1, "the entry is still counted exactly once");
+    QWC_TRUE(pr.stopped && !pr.failed, "stopped (a cancellation), not failed");
+    std::atomic<bool> s3(false);
+    SearchLimits l2;
+    l2.has_deadline = true;
+    l2.deadline = clock_now() - std::chrono::milliseconds(1);   /* already expired */
+    pr = qwc::search_test::qsearch_probe(pos, 0, -VALUE_INFINITE, +VALUE_INFINITE, l2, s3);
+    QWC_EQ_I(pr.score, VALUE_NONE, "an expired deadline yields the placeholder");
+    QWC_TRUE(pr.stopped && !pr.failed, "a deadline stop is a stop, not a failure");
+    SearchLimits l3;
+    l3.max_nodes = 1;   /* the budget is exhausted by the single entry */
+    pr = qwc::search_test::qsearch_probe(pos, 0, -VALUE_INFINITE, +VALUE_INFINITE, l3, s3);
+    QWC_EQ_I(pr.score, VALUE_NONE, "a node budget of 1 yields the placeholder");
+    QWC_TRUE(pr.stopped && !pr.failed, "a node-budget stop is a stop, not a failure");
+  }
+  /* ---- the MAX_PLY boundary: a depth-0 node AT the bound stays in storage --------
+   * (root + boundary = MAX_PLY_STACK; a node at ply == MAX_PLY is a horizon: counted
+   * once, terminal/draw-checked, a bounded stand-pat; it makes NO child, so nothing
+   * is written past the end of any per-ply array. Under ASan the old -1 sizing
+   * overflowed here.) */
+  {
+    QWC_TRUE(fen_load(pos, startpos), "startpos (boundary)");
+    std::atomic<bool> s(false);
+    SearchLimits l;
+    auto pr = qwc::search_test::negamax_probe(pos, MAX_PLY, 0, -VALUE_INFINITE, +VALUE_INFINITE, l, s);
+    QWC_EQ_I(pr.score, VALUE_ZERO, "startpos at the horizon: a bounded stand-pat (balanced)");
+    QWC_EQ_I((long long)pr.nodes, 1, "the boundary node is counted exactly once");
+    QWC_TRUE(!pr.stopped && !pr.failed, "the boundary node is clean");
+  }
+
+  /* ---- an interrupted search: the last completed result is kept, the position is
+   *    byte-identical, the PV is a real line, and a real score is kept -------------- */
+  {
+    QWC_TRUE(fen_load(pos, startpos), "startpos (interrupted)");
+    char fbefore[128] = {}, fafter[128] = {};   /* zero-init: fen_emit leaves the tail bytes untouched */
+    QWC_TRUE(fen_emit(pos, std::span<char>(fbefore, sizeof(fbefore))), "emit before");
+    SearchLimits tiny;
+    tiny.max_nodes = 64;   /* completes depth 1, stops inside depth 2 */
+    r = do_search(pos, tiny, stop);
+    QWC_TRUE(r.interrupted && !r.failed, "interrupted by the node budget (not an internal failure)");
+    QWC_TRUE(r.bestmove != move_none() && is_legal(pos, r.bestmove), "a legal move from the last completed work");
+    QWC_TRUE(r.score > VALUE_TB_LOSS_IN_MAX_PLY && r.score < VALUE_TB_WIN_IN_MAX_PLY, "a real (non-mate, non-none) score is kept");
+    QWC_TRUE(r.pv_size >= 1 && r.pv[0] == r.bestmove, "the kept PV is a real line starting at the bestmove");
+    QWC_TRUE(fen_emit(pos, std::span<char>(fafter, sizeof(fafter))) && memcmp(fbefore, fafter, 128) == 0,
+             "do_search leaves the caller's Position byte-identical");
+  }
+  /* ---- a stop that lands INSIDE quiescence: the pending value is discarded, the
+   *    fallback (a legal move) is published, the position is intact ----------------- */
+  {
+    QWC_TRUE(fen_load(pos, "rk6/8/8/8/8/8/8/Q3K3 w - - 0 1"), "hanging queen (qsearch stop)");
+    char fbefore[128] = {}, fafter[128] = {};   /* zero-init: fen_emit leaves the tail bytes untouched */
+    QWC_TRUE(fen_emit(pos, std::span<char>(fbefore, sizeof(fbefore))), "emit before");
+    SearchLimits tiny;
+    tiny.max_nodes = 20;   /* small enough to stop inside a child's quiescence */
+    r = do_search(pos, tiny, stop);
+    QWC_TRUE(r.interrupted && !r.failed, "a qsearch-interrupted search is interrupted, not failed");
+    QWC_TRUE(r.bestmove != move_none() && is_legal(pos, r.bestmove), "the fallback is a legal move (never 0000 with legal moves)");
+    QWC_TRUE(r.score > VALUE_TB_LOSS_IN_MAX_PLY && r.score < VALUE_TB_WIN_IN_MAX_PLY, "a real score (the root's static), not a placeholder");
+    QWC_TRUE(fen_emit(pos, std::span<char>(fafter, sizeof(fafter))) && memcmp(fbefore, fafter, 128) == 0,
+             "the position is intact after an interrupted qsearch");
+  }
+  /* ---- a high fullmove root: the u16 counter is accepted; the search normalizes its
+   *    private copy to 1 and runs normally ------------------------------------------ */
+  {
+    QWC_TRUE(fen_load(pos, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 65535"), "a fullmove of 65535 loads");
+    SearchLimits l;
+    l.depth = 2;
+    r = do_search(pos, l, stop);
+    QWC_TRUE(r.bestmove != move_none() && is_legal(pos, r.bestmove) && r.completed_depth > 0,
+             "a high-fullmove root searches normally");
+    QWC_TRUE(r.score > VALUE_TB_LOSS_IN_MAX_PLY && r.score < VALUE_TB_WIN_IN_MAX_PLY, "a real score at the high-fullmove root");
+  }
 
   int failed = qwc_end();
   return failed ? 1 : 0;

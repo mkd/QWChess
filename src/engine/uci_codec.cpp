@@ -44,20 +44,16 @@ static Square parse_two(const char* p) {
   return square_of(f, r);
 }
 
-/* For a castle token the wire 'to' is the king's g/c destination; map it to the
- * internal home-rook origin (h/a) so it can be matched against the legal set. For
- * any other (from,to) the internal 'to' is the wire 'to' itself. */
-static Square internal_to_of(Square from, Square to) {
-  bool home_king = (from == square_of(4, 0)) || (from == square_of(4, 7));   /* e1 / e8 */
-  if (is_valid_square(from) && is_valid_square(to) && home_king &&
-      rank_of(from) == rank_of(to)) {
-    int tf = file_of(to);
-    if (tf == 6)
-      return square_of(7, rank_of(from));   /* g -> h (kingside) */
-    if (tf == 2)
-      return square_of(0, rank_of(from));   /* c -> a (queenside) */
-  }
-  return to;
+/* The wire 'to' square of a legal candidate: a castle's wire destination is the
+ * KING's g/c square (the internal 'to' is the home-ROOK origin h/a); every other
+ * move uses its ordinary destination. Matching the token against the candidate's
+ * wire form (never remapping the token's squares) is what keeps an ORDINARY move
+ * from a home-king square -- e.g. a rook's e1-g1 when the king is elsewhere -- from
+ * being confused with the internal castle encoding e1-h1. */
+static Square wire_to_of(Move m) {
+  if (is_castle(m))
+    return square_of(file_of(move_to(m)) == 7 ? 6 : 2, rank_of(move_from(m)));   /* h->g / a->c */
+  return move_to(m);
 }
 
 [[nodiscard]] bool uci_move_parse(const Position& pos, std::string_view token, Move& out) {
@@ -75,8 +71,6 @@ static Square internal_to_of(Square from, Square to) {
       return false;   /* a fifth character must name a promotion piece */
   }
 
-  Square ito = internal_to_of(from, to);   /* castle g/c -> h/a; else the wire 'to' */
-
   std::array<Move, kUciMoveCapacity> moves{};
   std::size_t n = 0;
   if (!movegen_legal(pos, moves, n))
@@ -84,23 +78,29 @@ static Square internal_to_of(Square from, Square to) {
 
   for (std::size_t i = 0; i < n; ++i) {
     Move m = moves[i];
-    if (move_from(m) != from || move_to(m) != ito)
-      continue;
+    if (move_from(m) != from || wire_to_of(m) != to)
+      continue;   /* a candidate's canonical wire form must equal the token's squares */
     if (promo == 0 ? is_promotion(m)
                    : (!is_promotion(m) || move_promo(m) != promo))
       continue;
     out = m;
     return true;
   }
-  return false;   /* pinned / illegal / wrong promotion: `out` unchanged */
+  return false;   /* pinned / illegal / internal castle spelling / wrong promotion: `out` unchanged */
 }
 
 [[nodiscard]] int uci_move_emit(Move m, char* buf, std::size_t cap) {
   if (cap < kUciMoveText)
     return 0;   /* nothing written; the buffer cannot hold a move + NUL */
+  if (m == move_none()) {
+    /* the explicit output sentinel for a root with no legal move (checkmate or
+     * stalemate), or an internal search failure with no known legal move: 0000.
+     * It must be written here -- move_from(move_none()) is square 0 (a1), so
+     * falling through would corrupt the emission into a bogus "a1a1". */
+    buf[0] = '0'; buf[1] = '0'; buf[2] = '0'; buf[3] = '0'; buf[4] = '\0';
+    return 4;
+  }
   Square from = move_from(m);
-  if (!is_valid_square(from))
-    return 0;   /* the no-move sentinel (0000) is emitted by the protocol layer, not here */
   Square to;
   if (is_castle(m)) {
     /* internal 'to' is the home-rook origin (h/a); write the king's g/c destination. */

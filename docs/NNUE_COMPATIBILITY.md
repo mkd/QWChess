@@ -99,9 +99,19 @@ blend + clamp) is **search-dependent** and distinct from the raw NNUE output.
 
 `MAX_PLY=246` (SF's; **QwenChess uses its own 256**), `Value=int`,
 `VALUE_MATE=32000`, `MATE_IN_MAX_PLY=31754`, `TB=31753`, `INFINITE=32001`,
-`NONE=32002`; material P208 N781 B825 R1276 Q2538. QwenChess derives its own
-ranges from 256 (see `docs/ARCHITECTURE.md`) — the *search-depth* limit is not an
-NNUE-compatibility requirement.
+`NONE=32002`; material P208 N781 B825 R1276 Q2538.
+
+> ⚠ **Re-verify against the pinned commit at the first NNUE batch.** The values
+> above were recorded upstream on 2026-09-18 and **differ** from QwenChess's
+> *implementation* constants (`docs/ARCHITECTURE.md`, `src/core/types.hpp`):
+> `VALUE_NONE=0`, `INFINITE=32000`, `MATE=30488`, `MATE_IN_MAX_PLY=30000`,
+> `TB=29999`, `TB_WIN_IN_MAX_PLY=30487=mate_in(1)`. The upstream record cannot be
+> re-confirmed from this checkout right now (the `reference/` tree is absent);
+> the eval-wrapper clamp boundary and the TT score encoding depend on the
+> *upstream* values, so confirm them from `src/types.h` of the pinned commit
+> before claiming NNUE compatibility. The QwenChess *search* side is bound to the
+> implementation constants above (the search-depth limit is not an
+> NNUE-compatibility requirement).
 
 ## 9. Accumulator / Finny — `src/nnue/nnue_accumulator.h` (△ plan)
 

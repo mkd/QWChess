@@ -57,6 +57,58 @@ int main() {
     QWC_TRUE(pparse(buf, m2) == 1 && m2 == m, "castle emit->parse round trip");
   }
 
+  /* ---- regression: the token's squares must be matched, never REMAPPED -----------------
+   * A) A home-king square with NO king: an ordinary rook move e1-g1 (the king is on a1)
+   *    must parse as the rook move to g1 -- the pre-fix code remapped g->h (the internal
+   *    castle 'to') and returned the rook move to h1, or failed. */
+  {
+    const char *rookf = "7k/8/8/8/8/8/8/K3R3 w - - 0 1";   /* Ka1, Re1, kh8 */
+    QWC_TRUE(fen_load(g_pos, rookf), "home-square rook FEN loads");
+    QWC_TRUE(pparse("e1g1", m) == 1, "e1g1 (rook, no king on e1) parses");
+    QWC_EQ_I(move_from(m), square_of(4, 0), "e1g1 from e1");
+    QWC_EQ_I(move_to(m), square_of(6, 0), "e1g1 to g1 (the token's own destination)");
+    QWC_TRUE(!is_castle(m), "e1g1 is NOT a castle");
+    pemit(m, buf);
+    QWC_TRUE(memcmp(buf, "e1g1", 5) == 0, "e1g1 emits e1g1");
+    QWC_TRUE(pparse("e1h1", m) == 1, "e1h1 (the other ordinary rook move) parses");
+    QWC_EQ_I(move_to(m), square_of(7, 0), "e1h1 to h1");
+  }
+  /* B) The INTERNAL castle spelling (e1-h1 in a position that CAN castle) is rejected:
+   *    the wire only ever uses the king's g/c destination. */
+  {
+    const char *castf = "4k3/8/8/8/8/8/8/4K2R w K - 0 1";   /* can castle kingside */
+    QWC_TRUE(fen_load(g_pos, castf), "castling-capable FEN loads");
+    Move s = move_none();
+    QWC_TRUE(pparse("e1h1", s) == 0, "internal castle spelling e1h1 rejected");
+    QWC_EQ_I(s, move_none(), "rejected internal spelling leaves `out` unchanged");
+    QWC_TRUE(pparse("e1g1", m) == 1 && is_castle(m), "wire castle e1g1 still parses");
+  }
+  /* C) Same for the black side and the queenside: e8-c8 is an ordinary queen move when
+   *    the black king is not on e8; the internal e8-a8 spelling is rejected when the
+   *    queen CAN be there but the token says c8. */
+  {
+    const char *qf = "4qk2/8/8/8/8/8/8/K7 b - - 0 1";   /* black q e8, k f8; K a1 */
+    QWC_TRUE(fen_load(g_pos, qf), "home-square queen FEN loads");
+    QWC_TRUE(pparse("e8c8", m) == 1, "e8c8 (queen, no king on e8) parses");
+    QWC_EQ_I(move_to(m), square_of(2, 7), "e8c8 to c8 (the token's own destination)");
+    QWC_TRUE(!is_castle(m), "e8c8 is NOT a castle");
+    pemit(m, buf);
+    QWC_TRUE(memcmp(buf, "e8c8", 5) == 0, "e8c8 emits e8c8");
+    const char *qcastf = "r3k2r/8/8/8/8/8/8/2K5 b q - 0 1";   /* black K e8, R a8+h8, K c1 (off the a-file) */
+    QWC_TRUE(fen_load(g_pos, qcastf), "black queenside-capable FEN loads");
+    QWC_TRUE(pparse("e8a8", m) == 0, "internal castle spelling e8a8 rejected");
+    QWC_TRUE(pparse("e8c8", m) == 1 && is_castle(m), "wire castle e8c8 parses");
+  }
+  /* D) The no-move sentinel: move_none() emits exactly "0000" (never a bogus a1a1);
+   *    "0000" is not a parseable move. */
+  {
+    QWC_EQ_I(uci_move_emit(move_none(), buf, kUciMoveText), 4, "move_none emits 4 chars");
+    QWC_TRUE(memcmp(buf, "0000", 5) == 0, "move_none emits 0000");
+    QWC_TRUE(pparse("0000", m) == 0, "0000 is not a playable move");
+    char small[4];
+    QWC_EQ_I(uci_move_emit(move_none(), small, sizeof(small)), 0, "move_none needs the full 5-byte buffer");
+  }
+
   /* ---- promotions (white Q/R/B/N + a black underpromotion) ----------------------- */
   const char *promof = "8/P7/8/8/8/8/8/4K2k w - - 0 1";   /* white pawn a7 -> a8 */
   QWC_TRUE(fen_load(g_pos, promof), "promo FEN loads");
