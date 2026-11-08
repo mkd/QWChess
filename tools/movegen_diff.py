@@ -30,8 +30,10 @@ except ImportError as e:
 
 SEED = 0xC0FFEE                     # fixed, recorded seed for the seeded walks
 # QWChess promo payload per reference PieceType. QWChess is 1-based Stockfish-mirroring
-# (KNIGHT=2, BISHOP=3, ROOK=4, QUEEN=5); chess is 0-based, so key by the PieceType
-# objects rather than assuming an offset.
+# (KNIGHT=2, BISHOP=3, ROOK=4, QUEEN=5), and python-chess's PieceType is ALSO 1-based
+# (PAWN=1 .. KING=6), so the values align directly. The map is still keyed by the
+# PieceType OBJECTS (rather than raw integers) so the correspondence stays explicit
+# and survives any future renumbering on either side.
 PROMO = {chess.KNIGHT: 2, chess.BISHOP: 3, chess.ROOK: 4, chess.QUEEN: 5}
 CASTLE = 4
 EP = 1
@@ -208,7 +210,10 @@ def main():
 
     print(f"chess {chess.__version__} | seed {SEED:#x} | python {sys.version.split()[0]}")
     if chess.__version__ != "1.11.2":
-        print(f"WARNING: expected chess 1.11.2, found {chess.__version__}")
+        # A pinned reference: a different python-chess version computes INDEPENDENT
+        # expectations, so its results cannot be accepted as the pinned differential.
+        sys.exit(f"FAIL: pinned reference is chess==1.11.2; found {chess.__version__} "
+                 f"(refusing to run; upgrade/downgrade the `chess` package)")
 
     lines = build_lines()
 

@@ -170,11 +170,12 @@ int main() {
   }
 
   /* ---- the root window contains every real score: a mate-in-1 is scored EXACTLY --
-   * (The old classification-threshold window excluded 30487; the full window must
-   * report the true value, not a bound.) The best move must be a genuine mate. */
+   * (A classification-threshold window would exclude the extremal mate value; the
+   * true full window must report the actual score, not a bound.) The best move must
+   * be a genuine mate. */
   QWC_TRUE(fen_load(pos, "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1"), "mate-in-1 FEN loads");
   r = do_search(pos, deep(), stop);
-  QWC_EQ_I(r.score, mate_in(1), "mate-in-1 scored exactly (+30487: the window contained it)");
+  QWC_EQ_I(r.score, mate_in(1), "mate-in-1 scored exactly (+30999: the window contained it)");
   QWC_TRUE(is_legal(pos, r.bestmove), "mate-in-1: a legal bestmove");
   QWC_EQ_I(r.completed_depth, 1, "the extremal mate (mate_in(1)) terminates the ID loop at depth 1");
   {
@@ -184,7 +185,7 @@ int main() {
     QWC_TRUE(pos_make_move(&mp, &ms[0], r.bestmove), "the bestmove makes");
     std::array<Move, kSearchMoveCapacity> mm{};
     std::size_t mn = 0;
-    movegen_legal(mp, mm, mn);
+    QWC_TRUE(movegen_legal(mp, mm, mn), "legal generation succeeds after the mate");
     QWC_TRUE(mn == 0 && pos_is_in_check(&mp, mp.side), "the bestmove is a checkmate (no evasion, in check)");
   }
 
@@ -260,9 +261,9 @@ int main() {
     QWC_TRUE(fen_load(pos, startpos), "startpos (interrupted)");
     char fbefore[128] = {}, fafter[128] = {};   /* zero-init: fen_emit leaves the tail bytes untouched */
     QWC_TRUE(fen_emit(pos, std::span<char>(fbefore, sizeof(fbefore))), "emit before");
-    SearchLimits tiny;
-    tiny.max_nodes = 64;   /* completes depth 1, stops inside depth 2 */
-    r = do_search(pos, tiny, stop);
+    SearchLimits budget;
+    budget.max_nodes = 64;   /* completes depth 1, stops inside depth 2 */
+    r = do_search(pos, budget, stop);
     QWC_TRUE(r.interrupted && !r.failed, "interrupted by the node budget (not an internal failure)");
     QWC_TRUE(r.bestmove != move_none() && is_legal(pos, r.bestmove), "a legal move from the last completed work");
     QWC_TRUE(r.score > VALUE_TB_LOSS_IN_MAX_PLY && r.score < VALUE_TB_WIN_IN_MAX_PLY, "a real (non-mate, non-none) score is kept");
@@ -276,9 +277,9 @@ int main() {
     QWC_TRUE(fen_load(pos, "rk6/8/8/8/8/8/8/Q3K3 w - - 0 1"), "hanging queen (qsearch stop)");
     char fbefore[128] = {}, fafter[128] = {};   /* zero-init: fen_emit leaves the tail bytes untouched */
     QWC_TRUE(fen_emit(pos, std::span<char>(fbefore, sizeof(fbefore))), "emit before");
-    SearchLimits tiny;
-    tiny.max_nodes = 20;   /* small enough to stop inside a child's quiescence */
-    r = do_search(pos, tiny, stop);
+    SearchLimits qbudget;
+    qbudget.max_nodes = 20;   /* small enough to stop inside a child's quiescence */
+    r = do_search(pos, qbudget, stop);
     QWC_TRUE(r.interrupted && !r.failed, "a qsearch-interrupted search is interrupted, not failed");
     QWC_TRUE(r.bestmove != move_none() && is_legal(pos, r.bestmove), "the fallback is a legal move (never 0000 with legal moves)");
     QWC_TRUE(r.score > VALUE_TB_LOSS_IN_MAX_PLY && r.score < VALUE_TB_WIN_IN_MAX_PLY, "a real score (the root's static), not a placeholder");

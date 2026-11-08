@@ -352,6 +352,12 @@ SearchResult do_search(Position root, const SearchLimits& limits, std::atomic<bo
     Move* root_row = pv_row(*work, 0);
     for (int p = 0; p < plen; ++p)
       res.pv[res.pv_size++] = root_row[p];
+    /* The cumulative node count of the completed result (it includes the quiescence
+     * work; the count after an interrupted LAST iteration may be smaller than the
+     * final count, never larger). It must be current BEFORE the observer is called,
+     * so every completed-iteration report shows the true total, including in the
+     * final report of an uninterrupted search (where it equals the result's nodes). */
+    res.nodes = st.nodes;
     /* Progress reporting (after the completed result / PV is saved; at most one call
      * per completed iteration, never per node). */
     if (observer.on_iteration)

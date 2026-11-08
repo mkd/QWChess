@@ -8,6 +8,7 @@
 #   make test-sanitize  alias for the ASan/UBSan run (real instrumentation)
 #   make test-perft   full-depth perft gate (all supplied depths; builds qwcperft)
 #   make test-differential  independent movegen differential (pinned python chess; PYTHON=)
+#   make test-uci     UCI protocol integration (pinned python chess; PYTHON=)
 #   make test-portable-bits  force the non-<bit> fallback in the bitboard + attacks tests
 #   make check-cpp20  strict -std=c++20 -pedantic-errors conformance gate over all sources
 #   make check-c      legacy alias for check-cpp20 (the strict C++20 conformance gate)
@@ -24,18 +25,23 @@ CONFIG   ?= release
 PYTHON   ?= python3
 NET_DIR  ?= networks
 CPPFLAGS := -Isrc
-LDFLAGS  :=
+# POSIX threads: the engine's UCI layer runs a single search worker on a separate
+# thread (the command reader stays on the main thread). Applied at COMPILE and at
+# LINK for every configuration.
+LDFLAGS  := -pthread
 # Sanitizer-only linker flags, consumed ONLY by the sanitize configuration (see
-# SANIT_LDFLAGS below). Default is STATIC ASan (-static-libasan): this environment has
-# a preloaded hook (a setuid /etc/ld.so.preload entry) that breaks the DYNAMIC ASan
-# loader order -- the dynamic runtime aborts at startup with "ASan runtime does not
-# come first in initial library list". Statically linking the ASan runtime sidesteps
-# the dynamic loader entirely and works both here and on hosts without the hook.
-# Override, e.g. `make test-sanitize SANITIZER_LDFLAGS=` for ordinary dynamic
-# linkage on a clean host. Only the sanitize config consumes it; release/debug link
-# without it. An unrecognized value is deliberately NOT filtered -- it is handed to
-# the linker and fails visibly there.
-SANITIZER_LDFLAGS ?= -static-libasan
+# SANIT_LDFLAGS below). Default is EMPTY: the sanitize config uses the compiler
+# driver's ordinary ASan linkage. Some hosts carry a preload hook (a setuid
+# /etc/ld.so.preload entry) that breaks the DYNAMIC ASan loader order -- the dynamic
+# runtime then aborts at startup with "ASan runtime does not come first in initial
+# library list". On SUCH a host, pass the supported GCC override explicitly for a
+# working instrumented run, e.g.:
+#   make test-sanitize SANITIZER_LDFLAGS=-static-libasan
+# (a process-scoped LD_PRELOAD of the ASan runtime is an equivalent alternative).
+# Only the sanitize config consumes the value; release/debug link without it. An
+# unrecognized value is deliberately NOT filtered -- it is handed to the linker and
+# fails visibly there.
+SANITIZER_LDFLAGS ?=
 
 # One shared language standard. Used by BOTH the ordinary builds (release/debug/
 # sanitize) and the strict check-cpp20 gate, so the shipped engine is compiled as
@@ -49,9 +55,9 @@ WARN := -Wall -Wextra -Wshadow -Wconversion -Wwrite-strings
 # into a hard error.
 STRICT_CPP20 := $(CPPSTD) -pedantic-errors
 
-CXXFLAGS_RELEASE := $(CPPSTD) -O2 -g -march=native
-CXXFLAGS_DEBUG   := $(CPPSTD) -O0 -g
-CXXFLAGS_SANIT   := $(CPPSTD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+CXXFLAGS_RELEASE := $(CPPSTD) -O2 -g -march=native -pthread
+CXXFLAGS_DEBUG   := $(CPPSTD) -O0 -g -pthread
+CXXFLAGS_SANIT   := $(CPPSTD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -pthread
 
 # CONFIG is exactly one of release/debug/sanitize. Any other value is rejected
 # with a clear error instead of silently falling into the sanitizer flags (the
@@ -89,9 +95,18 @@ BIN := build/cpp20/$(CONFIG)/bin
 # test-only differential probe) for the strict-C++20 check.
 ALL_SRC := $(wildcard $(SRC)/*.cpp $(SRC)/*/*.cpp tests/*.cpp tools/position_probe.cpp)
 
-# The shipped engine (scaffold). Objects mirror the source tree under obj/src/.
-ENGINE_SRC := $(SRC)/engine/main.cpp $(SRC)/platform/clock.cpp
-ENGINE_OBJ := $(addprefix $(OBJ)/,$(ENGINE_SRC:$(SRC)/%.cpp=%.o))
+# The shipped engine (playable UCI: protocol + owned game state + single search
+# worker). ENGINE_LIB is every engine module except main; it is linked into the
+# engine binary AND into the engine unit tests (so they exercise the real module
+# objects, not copies). Objects mirror the source tree under obj/.
+ENGINE_LIB_SRC := $(SRC)/engine/uci.cpp $(SRC)/engine/game_state.cpp $(SRC)/engine/uci_codec.cpp \
+                  $(SRC)/search/search.cpp $(SRC)/search/material.cpp \
+                  $(SRC)/position/position.cpp $(SRC)/position/state.cpp $(SRC)/position/fen.cpp \
+                  $(SRC)/movegen/movegen.cpp $(SRC)/core/attacks.cpp $(SRC)/core/zobrist.cpp \
+                  $(SRC)/platform/clock.cpp
+ENGINE_LIB_OBJ := $(addprefix $(OBJ)/,$(ENGINE_LIB_SRC:$(SRC)/%.cpp=%.o))
+ENGINE_SRC := $(SRC)/engine/main.cpp
+ENGINE_OBJ := $(addprefix $(OBJ)/,$(ENGINE_SRC:$(SRC)/%.cpp=%.o)) $(ENGINE_LIB_OBJ)
 ENGINE_BIN := $(BIN)/qwenchess
 
 # Test binaries. Each test is a small self-contained program in tests/; the
@@ -145,6 +160,17 @@ CODEC_TEST_BIN := $(BIN)/uci_codec_test
 SEARCH_TEST_OBJ := $(OBJ)/tests/search_test.o $(OBJ)/search/search.o $(OBJ)/search/material.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/engine/uci_codec.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o $(OBJ)/platform/clock.o
 SEARCH_TEST_BIN := $(BIN)/search_test
 
+# The frozen score-scale contract (pinned constants + their relationships, incl. the
+# classification boundaries and the signed mate distance). Header-only test.
+SCORE_TEST_OBJ := $(OBJ)/tests/score_test.o
+SCORE_TEST_BIN := $(BIN)/score_test
+
+# The UCI protocol module unit tests (score presentation / mate formatting + the
+# bounded go-limit parsing + game-state replay ownership). Links the real engine
+# library objects.
+FMT_TEST_OBJ := $(OBJ)/tests/uci_fmt_test.o $(ENGINE_LIB_OBJ)
+FMT_TEST_BIN := $(BIN)/uci_fmt_test
+
 # Perft diagnostics (T005 cp4): the shared perft module, the qwcperft developer
 # tool (perft + root divide), and the perft regression test. The perft test is part
 # of the ordinary suite (bounded depths); `test-perft` runs its full-depth gate.
@@ -158,12 +184,12 @@ PERFT_TEST_BIN := $(BIN)/perft_test
 PROBE_OBJ      := $(OBJ)/tools/position_probe.o $(OBJ)/movegen/movegen.o $(OBJ)/position/state.o $(OBJ)/position/fen.o $(OBJ)/position/position.o $(OBJ)/core/zobrist.o $(OBJ)/core/attacks.o
 PROBE_BIN      := $(BIN)/position_probe
 
-TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN) $(MOVEGEN_TEST_BIN) $(MOVEGEN_LEGAL_TEST_BIN) $(MOVEGEN_CASTLE_TEST_BIN) $(MATERIAL_TEST_BIN) $(CODEC_TEST_BIN) $(SEARCH_TEST_BIN) $(PERFT_TEST_BIN)
+TEST_BINS := $(SCAFFOLD_TEST_BIN) $(SQBB_TEST_BIN) $(MOVE_TEST_BIN) $(ATTACKS_TEST_BIN) $(ZOB_TEST_BIN) $(POS_TEST_BIN) $(FEN_TEST_BIN) $(BOUNDARY_TEST_BIN) $(MAKEUNMAKE_TEST_BIN) $(EP_TEST_BIN) $(CASTLING_TEST_BIN) $(PROMO_TEST_BIN) $(NULL_TEST_BIN) $(REPETITION_TEST_BIN) $(MOVEGEN_TEST_BIN) $(MOVEGEN_LEGAL_TEST_BIN) $(MOVEGEN_CASTLE_TEST_BIN) $(MATERIAL_TEST_BIN) $(CODEC_TEST_BIN) $(SEARCH_TEST_BIN) $(PERFT_TEST_BIN) $(SCORE_TEST_BIN) $(FMT_TEST_BIN)
 
-DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d) $(MOVEGEN_LEGAL_TEST_OBJ:.o=.d) $(MOVEGEN_CASTLE_TEST_OBJ:.o=.d) $(MATERIAL_TEST_OBJ:.o=.d) $(CODEC_TEST_OBJ:.o=.d) $(SEARCH_TEST_OBJ:.o=.d) $(PERFT_TEST_OBJ:.o=.d) $(QWCPERFT_OBJ:.o=.d) $(PROBE_OBJ:.o=.d)
+DEPS := $(ENGINE_OBJ:.o=.d) $(SCAFFOLD_TEST_OBJ:.o=.d) $(SQBB_TEST_OBJ:.o=.d) $(MOVE_TEST_OBJ:.o=.d) $(ATTACKS_TEST_OBJ:.o=.d) $(ZOB_TEST_OBJ:.o=.d) $(POS_TEST_OBJ:.o=.d) $(FEN_TEST_OBJ:.o=.d) $(BOUNDARY_TEST_OBJ:.o=.d) $(MAKEUNMAKE_TEST_OBJ:.o=.d) $(EP_TEST_OBJ:.o=.d) $(CASTLING_TEST_OBJ:.o=.d) $(PROMO_TEST_OBJ:.o=.d) $(NULL_TEST_OBJ:.o=.d) $(REPETITION_TEST_OBJ:.o=.d) $(MOVEGEN_TEST_OBJ:.o=.d) $(MOVEGEN_LEGAL_TEST_OBJ:.o=.d) $(MOVEGEN_CASTLE_TEST_OBJ:.o=.d) $(MATERIAL_TEST_OBJ:.o=.d) $(CODEC_TEST_OBJ:.o=.d) $(SEARCH_TEST_OBJ:.o=.d) $(PERFT_TEST_OBJ:.o=.d) $(QWCPERFT_OBJ:.o=.d) $(PROBE_OBJ:.o=.d) $(SCORE_TEST_OBJ:.o=.d) $(FMT_TEST_OBJ:.o=.d)
 
 .SUFFIXES:
-.PHONY: all release debug sanitize test test-sanitize test-run test-perft test-perft-run test-differential test-differential-run test-portable-bits all-config check-c check-cpp20 net test-net clean help
+.PHONY: all release debug sanitize test test-sanitize test-run test-perft test-perft-run test-differential test-differential-run test-uci test-uci-run test-portable-bits all-config check-c check-cpp20 net test-net clean help
 
 all: release
 
@@ -263,6 +289,12 @@ $(CODEC_TEST_BIN): $(CODEC_TEST_OBJ) Makefile | $(BIN)
 $(SEARCH_TEST_BIN): $(SEARCH_TEST_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(SEARCH_TEST_OBJ)
 
+$(SCORE_TEST_BIN): $(SCORE_TEST_OBJ) Makefile | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(SCORE_TEST_OBJ)
+
+$(FMT_TEST_BIN): $(FMT_TEST_OBJ) Makefile | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(FMT_TEST_OBJ)
+
 $(QWCPERFT_BIN): $(QWCPERFT_OBJ) Makefile | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(SANIT_LDFLAGS) -o $@ $(QWCPERFT_OBJ)
 
@@ -301,6 +333,17 @@ test-differential:
 test-differential-run: $(PROBE_BIN)
 	@echo "move-generation differential [$(CONFIG)] via $(PYTHON)"
 	@$(PYTHON) tools/movegen_diff.py --probe "$(PROBE_BIN)"
+
+# UCI protocol integration: build the engine, then drive the real binary through a
+# scenario suite (handshake, position replay, search limits, infinite/stop/replacement
+# lifecycle, malformed input, latency bounds, self-play) with the pinned python `chess`
+# as the independent reference (legal moves, PV replay, FENs). The Python interpreter
+# is selectable: `make test-uci CONFIG=release PYTHON=/path/python`.
+test-uci:
+	$(MAKE) CONFIG=$(CONFIG) PYTHON=$(PYTHON) test-uci-run
+test-uci-run: $(ENGINE_BIN)
+	@echo "UCI protocol integration [$(CONFIG)] via $(PYTHON) (engine: $(ENGINE_BIN))"
+	@$(PYTHON) tools/uci_test.py --engine "$(ENGINE_BIN)"
 
 # Exercises the non-<bit> portable fallback in core/bitboard.hpp by compiling and
 # running BOTH the bitboard test (sq_bb_test) and the attacks test (attacks_test,

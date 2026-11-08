@@ -10,6 +10,7 @@
 #include "engine/uci_codec.hpp"
 
 #include <array>
+#include <cctype>
 
 namespace qwc {
 
@@ -56,7 +57,50 @@ static Square wire_to_of(Move m) {
   return move_to(m);
 }
 
+/* A UCI castling keyword ("O-O" / "O-O-O", either letter case) -> its side. The
+ * UCI specification's canonical form is the king's destination square (e1g1); the
+ * O-O spellings are the accepted alternative and resolve to the same move. The
+ * comparison is LOWERCASED on both sides, so any letter case matches. */
+static bool castle_keyword(std::string_view token, bool queenside) {
+  static const char kKing[]  = "o-o";
+  static const char kQueen[] = "o-o-o";
+  const char* kw = queenside ? kQueen : kKing;
+  const std::size_t n = queenside ? 5 : 3;
+  if (token.size() != n)
+    return false;
+  for (std::size_t i = 0; i < n; ++i)
+    if (std::tolower((unsigned char)token[i]) != kw[i])
+      return false;
+  return true;
+}
+
 [[nodiscard]] bool uci_move_parse(const Position& pos, std::string_view token, Move& out) {
+  /* The castling keywords are resolved against the legal set FIRST: a known spelling
+   * for a castle that is not currently legal fails exactly like any other illegal
+   * token (`out` unchanged). */
+  if (token.size() == 3 || token.size() == 5) {
+    const bool queenside = castle_keyword(token, true);
+    if (queenside || castle_keyword(token, false)) {
+      std::array<Move, kUciMoveCapacity> moves{};
+      std::size_t n = 0;
+      if (movegen_legal(pos, moves, n)) {
+        const Square kfrom = pos.side == Color::WHITE ? square_of(4, 0)
+                                                      : square_of(4, 7);
+        for (std::size_t i = 0; i < n; ++i) {
+          const Move m = moves[i];
+          if (!is_castle(m) || move_from(m) != kfrom)
+            continue;
+          const bool king_side = file_of(move_to(m)) == 7;   /* internal 'to' = the home rook */
+          if (king_side == !queenside) {
+            out = m;
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+  }
+
   if (token.size() != 4 && token.size() != 5)
     return false;   /* malformed length; `out` unchanged */
   Square from = parse_two(token.data());

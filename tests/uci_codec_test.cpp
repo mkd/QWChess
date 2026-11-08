@@ -57,6 +57,35 @@ int main() {
     QWC_TRUE(pparse(buf, m2) == 1 && m2 == m, "castle emit->parse round trip");
   }
 
+  /* ---- the spec's alternative castling spellings (O-O / O-O-O, either case) --------
+   * They resolve to the SAME internal move as the canonical king-destination form,
+   * and a known spelling for a castle that is not currently legal is rejected with
+   * `out` unchanged (never a remap, never an invented move). */
+  for (const auto& c : castles) {
+    QWC_TRUE(fen_load(g_pos, c.fen), "castle-keyword FEN loads");
+    const bool kingside = file_of(c.int_to) == 7;   /* the internal 'to' is the home rook */
+    const char* kw = kingside ? "O-O" : "O-O-O";
+    const char* kw_low = kingside ? "o-o" : "o-o-o";
+    Move s = move_none();
+    QWC_TRUE(pparse(kw, m) == 1 && is_castle(m), "the castling keyword parses");
+    QWC_EQ_I(move_to(m), c.int_to, "keyword castle keeps the internal rook-origin 'to'");
+    QWC_TRUE(pparse(kw_low, s) == 1 && s == m, "the lowercase keyword parses to the same move");
+    QWC_EQ_I(move_from(m), (g_pos.side == Color::WHITE ? square_of(4, 0) : square_of(4, 7)),
+             "keyword castle moves the correct king");
+    /* and the canonical form must still be accepted, to the identical move */
+    Move m2 = move_none();
+    QWC_TRUE(pparse(c.wire, m2) == 1 && m2 == m, "keyword and king-destination forms agree");
+  }
+  {
+    /* A known spelling with NO castling available is rejected (out unchanged). */
+    QWC_TRUE(fen_load(g_pos, "4k3/8/8/8/8/8/8/4K2R w - - 0 1"), "no-rights FEN loads");
+    Move s = move_none();
+    QWC_TRUE(pparse("O-O", s) == 0 && s == move_none(), "O-O rejected without the right");
+    QWC_TRUE(pparse("O-O-O", s) == 0 && s == move_none(), "O-O-O rejected without the right");
+    QWC_TRUE(fen_load(g_pos, "4k3/8/8/8/8/8/8/R3K2R w Q - 0 1"), "queenside-only FEN loads");
+    QWC_TRUE(pparse("O-O", s) == 0 && s == move_none(), "O-O rejected when only O-O-O is available");
+  }
+
   /* ---- regression: the token's squares must be matched, never REMAPPED -----------------
    * A) A home-king square with NO king: an ordinary rook move e1-g1 (the king is on a1)
    *    must parse as the rook move to g1 -- the pre-fix code remapped g->h (the internal

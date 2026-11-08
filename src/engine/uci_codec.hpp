@@ -66,13 +66,17 @@ inline constexpr int kUciMoveText = 6;
  *
  * `token` is the [data, data+size) range (a NUL terminator is not required). A valid
  * token is exactly 4 characters ("e2e4") or 5 characters with a lowercase promotion
- * piece ("a7a8q"). The token is resolved against movegen_legal(pos): a matching legal
- * move (same from/to, and the same promotion payload -- zero for non-promotions) is
+ * piece ("a7a8q"). The UCI specification's alternative castling spellings "O-O" and
+ * "O-O-O" (either letter case) are also valid: they resolve to the side-to-move's
+ * castle on the named side when it is legal. The token is resolved against
+ * movegen_legal(pos): a matching legal move (same from/to, and the same promotion
+ * payload -- zero for non-promotions; the castling keyword by its king side) is
  * written to `out` and true is returned. En-passant, castle and promotion flags come
  * from the matching legal move, so they are derived correctly; a pinned or illegal
  * token matches nothing and fails. "0000" and any other malformed token (bad squares,
- * extra payload, a 5th non-promotion character, a 4th/5th square that is a pawn's own
- * forward push spelled without a promotion, etc.) fail.
+ * extra payload, a 5th non-promotion character, a castling keyword that is not
+ * currently legal, a 4th/5th square that is a pawn's own forward push spelled without
+ * a promotion, etc.) fail.
  *
  * On failure `out` is left unchanged and false is returned (see the header contract).
  * `pos` must be an initialized, consistent Position; it is left untouched. */

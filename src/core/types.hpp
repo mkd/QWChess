@@ -216,79 +216,79 @@ inline constexpr int MAX_PLY = 256;
 inline constexpr int MAX_PLY_STACK = MAX_PLY + 1;   /* root + MAX_PLY entries */
 static_assert(MAX_PLY <= 0xFFFF, "MAX_PLY must fit a SearchPly (u16)");
 
-/* ---- Score scale + reserved ranges (the Stockfish 19 scheme, pinned).
+/* ---- Score scale + reserved ranges (QwenChess's own search-constant scheme).
  *
  *  Centipawn integers, side-to-move perspective. Real static evaluation (the
- *  temporary material eval now; the clamped NNUE later) is bounded in
- *  [-VALUE_TB, +VALUE_TB]; a RESERVED interval above it holds forced-win scores
- *  (mates, and tablebase wins that complete within the horizon); above that sit
- *  the sentinels. Ordering (low..high):
+ *  temporary material eval now; the clamped NNUE later) stays strictly below the
+ *  lowest reserved score. A REAL MATE score occupies the closed interval
+ *  [±MATE_IN_MAX_PLY, ±MATE]; the reserved tablebase interval
+ *  [±TB_WIN_IN_MAX_PLY, ±TB] sits strictly below it and is disjoint from it;
+ *  above the mate interval sit the sentinels. Ordering (low..high):
  *
- *    TB_LOSS_IN_MAX < MATED_IN_MAX < ... < 0 (draw/none) < ... < MATE_IN_MAX
- *    <= TB_WIN_IN_MAX < VALUE_MATE < VALUE_INFINITE
+ *    MATED_IN_MAX < TB_LOSS_IN_MAX < ... < 0 (draw) < ... < TB_WIN_IN_MAX
+ *    < TB < MATE_IN_MAX < ... < MATE < INFINITE < NONE
  *
- *  - VALUE_NONE = 0 follows SF19: it is the "no value" placeholder and it EQUALS
- *    VALUE_DRAW. A 0 score is therefore ambiguous between "a real draw" and
- *    "a stopped / failed node"; callers disambiguate by STATE (the stopped /
- *    failed flags on SearchState / SearchResult), never by value comparison.
- *  - mate_in(d) = VALUE_MATE - d. A mate within MAX_PLY=256 plies scores in
- *    [30232, 30487]; the reserved forced-win interval is [30000, 30487]
- *    = [MATE_IN_MAX_PLY, VALUE_MATE - 1] (488 values: every reachable mate
- *    distance, with headroom beyond MAX_PLY).
- *  - VALUE_TB_WIN_IN_MAX_PLY = 30487 = mate_in(1). A tablebase win that completes
- *    within the horizon is scored as a mate-in-one: the overlap is DELIBERATE
- *    (within the horizon, "a forced win" and "a mate" are one value). SF19 keeps
- *    the intervals split; QwenChess unifies them per the pinned constants.
- *  - VALUE_TB = 29999: a win/loss beyond the horizon (large, but NOT a mate). */
+ *  - VALUE_NONE = 32001 is DISTINCT from every real score (VALUE_DRAW = 0): it is
+ *    the "no value" placeholder of a stopped / failed node. Control flow still
+ *    disambiguates by STATE (the stopped / failed flags on SearchState /
+ *    SearchResult); the distinct value is a defence, not a reason to drop the
+ *    flags.
+ *  - mate_in(d) = VALUE_MATE - d, a plain mapping (no clamp) defined for
+ *    0 <= d <= MAX_PLY, so a mate scores in [30744, 31000]; the reserved forced-
+ *    win (mate) interval is exactly [MATE_IN_MAX_PLY, MATE].
+ *  - A tablebase win/loss within the horizon scores in [±30487, ±30743] and can
+ *    NEVER be mistaken for a mate score; the two intervals are disjoint.
+ *  - The upstream Stockfish-19 scheme (different numbers) is recorded in
+ *    docs/NNUE_COMPATIBILITY.md §8 as an upstream REFERENCE fact to re-verify at
+ *    the NNUE milestone; it is not this engine's implementation contract. */
 inline constexpr Value VALUE_ZERO     = 0;
 inline constexpr Value VALUE_DRAW     = 0;
-inline constexpr Value VALUE_NONE     = 0;   /* SF19 sentinel; state-disambiguated (above) */
-inline constexpr Value VALUE_TB       = 29999;   /* = MATE_IN_MAX_PLY - 1 */
-inline constexpr Value VALUE_MATE_IN_MAX_PLY  = 30000;   /* floor of the forced-win interval */
+inline constexpr Value VALUE_MATE     = 31000;   /* top of the mate interval (= mate_in(0)) */
+inline constexpr Value VALUE_MATE_IN_MAX_PLY  = VALUE_MATE - MAX_PLY;   /* 30744: floor of the mate interval */
 inline constexpr Value VALUE_MATED_IN_MAX_PLY = -VALUE_MATE_IN_MAX_PLY;
-inline constexpr Value VALUE_MATE     = 30488;   /* top of the interval; never a real score */
-inline constexpr Value VALUE_TB_WIN_IN_MAX_PLY  = 30487;   /* = VALUE_MATE - 1 = mate_in(1) */
+inline constexpr Value VALUE_TB       = VALUE_MATE_IN_MAX_PLY - 1;      /* 30743: top of the TB interval */
+inline constexpr Value VALUE_TB_WIN_IN_MAX_PLY  = VALUE_TB - MAX_PLY;   /* 30487: floor of the TB interval */
 inline constexpr Value VALUE_TB_LOSS_IN_MAX_PLY = -VALUE_TB_WIN_IN_MAX_PLY;
-inline constexpr Value VALUE_INFINITE = 32000;
-static_assert(VALUE_TB_LOSS_IN_MAX_PLY < VALUE_MATED_IN_MAX_PLY, "score ordering");
-static_assert(VALUE_MATED_IN_MAX_PLY < VALUE_DRAW, "score ordering");
-static_assert(VALUE_DRAW < VALUE_TB, "score ordering");
-static_assert(VALUE_TB < VALUE_MATE_IN_MAX_PLY, "score ordering");
-static_assert(VALUE_MATE_IN_MAX_PLY <= VALUE_TB_WIN_IN_MAX_PLY, "score ordering (deliberate <=: TB win in max ply == mate_in(1))");
-static_assert(VALUE_TB_WIN_IN_MAX_PLY < VALUE_MATE, "score ordering");
+inline constexpr Value VALUE_INFINITE = 32000;   /* a search window bound; never a real score */
+inline constexpr Value VALUE_NONE     = 32001;   /* the "no value" placeholder; distinct from 0 (above) */
+static_assert(VALUE_DRAW == VALUE_ZERO, "draw is zero");
+static_assert(VALUE_MATED_IN_MAX_PLY < VALUE_TB_LOSS_IN_MAX_PLY, "score ordering");
+static_assert(VALUE_TB_LOSS_IN_MAX_PLY < VALUE_ZERO, "score ordering");
+static_assert(VALUE_ZERO < VALUE_TB_WIN_IN_MAX_PLY, "score ordering");
+static_assert(VALUE_TB_WIN_IN_MAX_PLY < VALUE_TB, "score ordering");
+static_assert(VALUE_TB < VALUE_MATE_IN_MAX_PLY, "score ordering (the TB and mate intervals are disjoint)");
+static_assert(VALUE_MATE_IN_MAX_PLY < VALUE_MATE, "score ordering");
 static_assert(VALUE_MATE < VALUE_INFINITE, "score ordering");
+static_assert(VALUE_INFINITE < VALUE_NONE, "score ordering");
+static_assert(VALUE_TB_LOSS_IN_MAX_PLY == -VALUE_TB_WIN_IN_MAX_PLY, "symmetric TB interval");
+static_assert(VALUE_MATED_IN_MAX_PLY == -VALUE_MATE_IN_MAX_PLY, "symmetric mate interval");
 
-/* Mate distance helpers (side-to-move perspective).
- *  mate_in(d) scores [30000, 30487] for 1 <= d <= 488 (reachable d <= MAX_PLY
- *  scores [30232, 30487]); a distance beyond the 488-plies floor clamps to
- *  VALUE_MATE_IN_MAX_PLY (defensive: unreachable within MAX_PLY). */
-inline Value mate_in(int ply)  {
-  int d = ply;
-  if (d > VALUE_MATE - VALUE_MATE_IN_MAX_PLY)
-    d = VALUE_MATE - VALUE_MATE_IN_MAX_PLY;
-  if (d < 0)
-    d = 0;
-  return (Value)(VALUE_MATE - d);
-}
-inline Value mated_in(int ply) { return -mate_in(ply); }
-/* True when `v` is in the forced-win interval of the POSITIVE side (a mate or a
- * tablebase win within the horizon); the negative mirror is -is_mate(-v). */
-inline int is_mate(Value v)    { return v >= VALUE_MATE_IN_MAX_PLY; }
+/* Mate-distance helpers (side-to-move perspective); `ply` is the node's root-
+ * relative ply (0..MAX_PLY). Plain mappings -- no clamping: a node is never
+ * searched beyond MAX_PLY, so both ranges are exactly [30744, 31000] and its
+ * mirror. */
+inline Value mate_in(int ply)  { return (Value)(VALUE_MATE - ply); }
+inline Value mated_in(int ply) { return (Value)(-VALUE_MATE + ply); }
 
-/* True when `v` is a forced-win score of EITHER sign -- the complete
- * classification used by score presentation (is_mate covers one side). */
-inline int is_mate_score(Value v) { return v >= VALUE_MATE_IN_MAX_PLY || v <= VALUE_MATED_IN_MAX_PLY; }
+/* True when `v` is a real (finite) MATE score of the POSITIVE sign: the closed
+ * interval [MATE_IN_MAX_PLY, MATE]. Tablebase values (30743 / 30487 / mirrors),
+ * the sentinels (32000 / 32001), zero and static scores all classify as NOT
+ * mate; the negative mirror is is_mate(-v). */
+inline int is_mate(Value v)    { return v >= VALUE_MATE_IN_MAX_PLY && v <= VALUE_MATE; }
 
-/* The signed mate distance (plies) of a forced-win score `v`: positive when the
- * side to move mates in that many plies (v == mate_in(d)), negative when the side
- * to move is mated in that many plies (v == mated_in(|d|); a mate at the root is
- * 0). A clamped floor score reads as the 488-ply maximum. Undefined (0) for a
- * non-forced score. */
+/* True when `v` is a real mate score of EITHER sign. */
+inline int is_mate_score(Value v) { return is_mate(v) || is_mate(-v); }
+
+/* The SIGNED mate distance (plies) of a classified mate score `v`: positive when
+ * the side to move mates in that many plies (v == mate_in(d)), negative when the
+ * side to move is mated in that many plies (v == mated_in(|d|); mated at the
+ * root is 0). Defined only for real mate scores; it returns 0 for every other
+ * value (a draw, a TB value, a sentinel or a static score). */
 inline int mate_distance(Value v) {
-  if (v > VALUE_ZERO)
-    return (int)(VALUE_MATE - v);
-  if (v < VALUE_ZERO)
-    return -((int)v + VALUE_MATE);
+  if (is_mate(v))
+    return (int)(VALUE_MATE - v);        /* +plies: the side to move mates */
+  if (is_mate(-v))
+    return -((int)(v + VALUE_MATE));     /* -plies: the side to move is mated */
   return 0;
 }
 

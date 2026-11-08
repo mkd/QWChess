@@ -46,15 +46,16 @@
  * null move is played or counted.
  *
  * Score convention: Value is the side-to-move perspective in centipawns. The
- * reserved ranges are the pinned Stockfish-19 scheme in core/types.hpp (forced
- * wins score in [±30000, ±30487]; mate_in(1) = 30487; static eval is bounded
- * below that; sentinels above). The root is searched with a true full window
+ * reserved ranges are QwenChess's search-constant scheme in core/types.hpp
+ * (real mate scores occupy [±30744, ±31000]; the reserved tablebase interval
+ * [±30487, ±30743] sits strictly below it; static eval is bounded below that;
+ * sentinels above). The root is searched with a true full window
  * ([-VALUE_INFINITE, +VALUE_INFINITE] = ±32000) that contains every real score,
- * including every mate score: a classification threshold such as
- * VALUE_MATE_IN_MAX_PLY (30000) is NOT a search infinity and must never bound
- * the root. Note VALUE_NONE = 0 = VALUE_DRAW: a zero score is ambiguous
- * (draw vs placeholder) and is disambiguated by the state flags, never by
- * value comparison.
+ * including every mate score: a classification boundary such as
+ * VALUE_MATE_IN_MAX_PLY (30744) is NOT a search infinity and must never bound
+ * the root. VALUE_NONE (32001) is distinct from every real score, but a zero
+ * score may still be a real draw, so failure is detected by the stopped /
+ * failed state flags, never by value comparison.
  */
 #ifndef QWC_SEARCH_SEARCH_HPP
 #define QWC_SEARCH_SEARCH_HPP
@@ -76,11 +77,16 @@ namespace qwc {
  * would still be a hard failure. */
 inline constexpr int kSearchMoveCapacity = 16 * 27 + 2 + 2;   /* 436 */
 
-/* The search limits for one search. Every field is optional (0 / false = no limit).
- * `depth` caps the iterative-deepening depth (0 = no cap, i.e. up to MAX_PLY or the
- * first terminal / no-useful-deeper point). `max_nodes` caps the node count (0 = no
- * cap). `deadline` (steady-clock) is the soft/hard time bound; `has_deadline` gates it.
- * `infinite` marks a `go infinite` / bare `go` (active until stop/quit/replacement). */
+/* The search limits for one search. Every field is an optional CAP: 0 / false means
+ * "no cap for this field" (an internal sentinel). A protocol layer that receives an
+ * EXPLICIT zero budget (UCI `go nodes 0` / `go movetime 0` / zero usable clock time)
+ * must distinguish it from an omitted limit and handle it itself -- e.g. by pre-setting
+ * the stop flag so do_search returns its legal fallback immediately -- because do_search
+ * cannot tell "omitted" from "explicitly zero". `depth` caps the iterative-deepening
+ * depth (0 = no cap, i.e. up to MAX_PLY or the first terminal / no-useful-deeper point).
+ * `max_nodes` caps the node count (0 = no cap). `deadline` (steady-clock) is the
+ * soft/hard time bound; `has_deadline` gates it. `infinite` marks a `go infinite` /
+ * bare `go` (active until stop/quit/replacement). */
 struct SearchLimits {
   int         depth       = 0;
   long long   max_nodes   = 0;
@@ -93,9 +99,11 @@ struct SearchLimits {
  * move, otherwise a legal move (the last fully completed iteration's best move, or
  * the legal fallback if no iteration completed). `score` is a REAL value in the
  * side-to-move perspective: the last fully completed iteration's score, or the
- * root's static depth-0 score if none completed (0 may be a genuine draw). Because
- * VALUE_NONE = 0 = VALUE_DRAW, `score` alone can NEVER detect a failure; the
- * `failed` / `interrupted` flags are the authoritative state. `interrupted` is set
+ * root's static depth-0 score if none completed (0 may be a genuine draw). A zero
+ * score may therefore be real, so `score` alone must never be used to detect a
+ * failure; the `failed` / `interrupted` flags are the authoritative state (an
+ * internal-error score is the distinct VALUE_NONE sentinel, but the flags remain
+ * the contract). `interrupted` is set
  * (separately from `score`) when a stop / limit arrived; a cancellation is never
  * represented as, compared as, or used to update a completed score or PV. `failed`
  * is set on an INTERNAL error (a move generation or make failure on a legal
